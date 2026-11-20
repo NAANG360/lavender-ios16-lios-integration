@@ -26,6 +26,12 @@ void mock_barrier(void);
 
 /* Fake PMIC state */
 static uint8_t pon_rt;          /* PON_INT_RT_STS: bit0 KPDPWR, bit1 RESIN */
+/* 0220: PM660 RTC (PPID 0x060): 32-bit seconds, RTC_CTRL bit 7 enable */
+#define RTC_APID        33
+static uint32_t rtc_secs = 0x6abc1234u;
+static uint8_t rtc_ctrl = 0x80;
+static int rtc_tick_after_reads = -1;   /* >= 0: the counter carries after N byte reads */
+static unsigned rtc_byte_reads;
 static uint8_t gpio_rt = 1;     /* GPIO7 INT_RT_STS bit0: 1 = released (active low) */
 static uint8_t gpio_mode = 0x00, gpio_en = 0x80, gpio_subtype = 0x10;
 static unsigned bad_writes, reads_done;
@@ -42,6 +48,17 @@ pmic_read(unsigned apid, unsigned addr)
 		case 0x05: return gpio_subtype;
 		case 0x40: return gpio_mode;
 		case 0x46: return gpio_en;
+		}
+	}
+	if (apid == RTC_APID) {
+		if (addr == 0x46) {
+			return rtc_ctrl;
+		}
+		if (addr >= 0x48 && addr <= 0x4b) {
+			if (rtc_tick_after_reads >= 0 && (int)rtc_byte_reads++ == rtc_tick_after_reads) {
+				rtc_secs += 1;          /* 0x...ff -> carry into byte 1 mid-read */
+			}
+			return (uint8_t)(rtc_secs >> (8 * (addr - 0x48)));
 		}
 	}
 	return 0xee;
@@ -128,6 +145,8 @@ setup_arbiter(void)
 	mock_add_region(OBS_PA + 0x8000u * PON_APID, 0x1000);
 	mock_add_region(OBS_PA + 0x8000u * GPIO_APID, 0x1000);
 	mock_add_region(OBS_PA + 0x8000u * 7, 0x1000);
+	core[(0x800 + 4 * RTC_APID) / 4] = 0x060u << 8;   /* PM660 rtc_rw@6000 */
+	mock_add_region(OBS_PA + 0x8000u * RTC_APID, 0x1000);
 }
 
 int
@@ -171,6 +190,34 @@ main(void)
 	sweet_keys_init();
 	CHECK(keys_gpio_chan == 0 && keys_gpio_apid == KEYS_NO_APID, "output GPIO not withheld");
 	CHECK(keys_pon_chan != 0, "PON lost when GPIO withheld");
+
+	/* 0220: PM660 RTC -> calendar */
+	{
+		uint32_t raw = 0;
+		uint8_t ctrl = 0;
+		CHECK(lavender_rtc_read(&raw, &ctrl) && raw == 0x6abc1234u && ctrl == 0x80,
+		    "RTC read 0x%08x ctrl 0x%02x", raw, ctrl);
+		CHECK(lavender_rtc_gmt() == 0x6abc1234L, "plausible raw not used as is");
+		rtc_secs = 12345u;                      /* not Unix time, no offset: fall back */
+		CHECK(lavender_rtc_gmt() == 0, "implausible raw used without sweetrtcoff");
+		mock_bootarg_rtcoff_set = 1;
+		mock_bootarg_rtcoff = 1700000000 - 12345;
+		CHECK(lavender_rtc_gmt() == 1700000000L, "sweetrtcoff not applied");
+		mock_bootarg_rtcoff = -5;
+		rtc_secs = 0x6abc1234u;
+		CHECK(lavender_rtc_gmt() == 0x6abc1234L - 5, "negative sweetrtcoff");
+		mock_bootarg_rtcoff_set = 0;
+		/* carry from byte 0 into byte 1 between the byte reads: re-read, consistent value */
+		rtc_secs = 0x6abc12ffu;
+		rtc_byte_reads = 0;
+		rtc_tick_after_reads = 1;               /* after byte 0, before byte 1 */
+		CHECK(lavender_rtc_read(&raw, &ctrl) && raw == 0x6abc1300u, "torn read 0x%08x", raw);
+		rtc_tick_after_reads = -1;
+		rtc_ctrl = 0x00;                        /* RTC disabled */
+		CHECK(lavender_rtc_gmt() == 0, "disabled RTC used");
+		rtc_ctrl = 0x80;
+		CHECK(bad_writes == 0, "%u writes that are not EXT_READL", bad_writes);
+	}
 
 	/* A v5 arbiter is not this layout. */
 	keys_started = false;
