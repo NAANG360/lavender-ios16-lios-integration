@@ -18,7 +18,12 @@
  *   clamp is released, POWER_DOWN cleared keeping 0x22, the PLL locks before
  *   RUN_STOP; sweetusbhold=1 then stays in its status loop.
  * SCENARIO 5 (0210, PHY supplies off: the PLL never locks): the wait is
- *   bounded and the gadget still starts; sweetusbhold=0 returns at once.
+ *   bounded; with no PHY clock SETEPCONFIG hangs, so nothing runs (0211
+ *   model); sweetusbhold=0 returns at once.
+ * SCENARIO 6 (0211 off, sweetusbfix=0): reproduces the device log of boot
+ *   usbtest-0210: PHY locked, "ep0 cmd 0x1 timeout", no RUN_STOP.
+ * SCENARIOS 4/2 also check the 0211 bring-up: UTMI clock as PIPE clock,
+ *   core+PHY soft reset, HS quirks, then SETEPCONFIG completes.
  */
 #include <setjmp.h>
 #include "mock_mmio.h"
@@ -36,6 +41,15 @@ void mock_barrier(void);
 
 static bool pll_can_lock = true;
 static bool rs_after_lock = true;      /* RUN_STOP never set while the PLL is unlocked */
+/*
+ * 0211 model of the device: SETEPCONFIG writes the endpoint context RAM,
+ * which runs from the PHY side; it only completes once the core went through
+ * PHYSOFTRST with the PHY PLL locked (lavender boot usbtest-0210 and the
+ * Poco F1: DEPSTARTCFG completes, SETEPCONFIG hangs). Other commands always
+ * complete.
+ */
+static bool phy_synced;
+static bool u2_in_reset;
 
 static const uint32_t cbcr_offs[7] = { 0xf008, 0xf00c, 0xf010, 0x5018, 0xf03c, 0x6a004, 0x88018 };
 
@@ -61,7 +75,17 @@ hw_step(void)
 	if (DWC(0xc704) & (1u << 31)) {
 		DWC(0xc70c) &= ~(1u << 22);             /* run -> not halted */
 	}
+	if (DWC(0xc200) & (1u << 31)) {
+		u2_in_reset = true;
+	} else if (u2_in_reset) {
+		u2_in_reset = false;
+		phy_synced = (PHY(0x38) & (1u << 5)) != 0;  /* PHYSOFTRST released with the PLL locked */
+	}
 	for (unsigned ep = 0; ep < 8; ep++) {
+		uint32_t cmd = DWC(0xc80c + 0x10 * ep);
+		if ((cmd & 0xfu) == 1u && !phy_synced) {
+			continue;                       /* SETEPCONFIG hangs without the PHY clock */
+		}
 		DWC(0xc80c + 0x10 * ep) &= ~(1u << 10); /* endpoint command done */
 	}
 	/* QUSB2 v1: 8-bit registers, read back in every byte lane */
@@ -265,6 +289,18 @@ main(void)
 	CHECK(memcmp(snap_gcc, gcc_mem, 0x94000) == 0, "sweetusb=1 wrote a GCC register");
 	CHECK(mock_find(T_DWC3_PA, 4)->maps == 0, "unclocked DWC3 was mapped");
 	CHECK(mock_find(T_QUSB2_PA, 4)->maps == 0, "PHY mapped with the controller off");
+#elif SCENARIO == 6
+	setup(true, 0x00102000u);
+	PHY(0x38) = 0x10101010u;
+	PHY(0xb4) = 0x23232323u;
+	DWC(0xc200) = 0x00002500u;                      /* GUSB2PHYCFG as logged */
+	mock_bootarg_sweetusb = 2;
+	mock_bootarg_usbfix = 0;
+	sweet_usb_probe();
+	CHECK(PHY(0x38) & (1u << 5), "PLL not locked");
+	CHECK(!(DWC(0xc704) & (1u << 31)), "RUN_STOP set although SETEPCONFIG hung");
+	CHECK(DWC(0xc80c) & (1u << 10), "ep0 SETEPCONFIG did not hang in the model");
+	CHECK((*mock_reg(T_QS_PA + 0x08) & 0x109u) == 0, "GENERAL_CFG touched with sweetusbfix=0");
 #elif SCENARIO == 4 || SCENARIO == 5
 	setup(true, 0x00102000u);                       /* as logged: device mode, halted */
 	PHY(0x38) = 0x10101010u;                        /* PLL_STATUS without lock */
@@ -277,8 +313,23 @@ main(void)
 	CHECK(TCSR_CLAMP == 1, "TCSR clamp not released (0x%08x)", TCSR_CLAMP);
 	CHECK((PHY(0xb4) & 0xffu) == 0x22, "POWERDOWN 0x%02x, want 0x22", PHY(0xb4) & 0xffu);
 	CHECK((PHY(0x80) & 0xffu) == 0xf8, "PORT_TUNE1 changed");
+#if SCENARIO == 4
 	CHECK(DWC(0xc704) & (1u << 31), "RUN_STOP not set");
 	CHECK(mock_nthreads == 2, "threads %u, want event + live-log", mock_nthreads);
+#else
+	/* no PHY clock: SETEPCONFIG hangs even after 0211, nothing is run */
+	CHECK(!(DWC(0xc704) & (1u << 31)), "RUN_STOP set without a PHY clock");
+	CHECK(mock_nthreads == 0, "threads %u started without a PHY clock", mock_nthreads);
+#endif
+	/* 0211 (default mask 7) */
+	CHECK((*mock_reg(T_QS_PA + 0x08) & 0x109u) == 0x009u, "GENERAL_CFG 0x%08x: want UTMI as PIPE, CLK_DIS clear",
+	    *mock_reg(T_QS_PA + 0x08));
+	CHECK((DWC(0xc11c) & ((1u << 17) | (1u << 26))) == ((1u << 17) | (1u << 26)), "GUCTL1 quirks 0x%08x", DWC(0xc11c));
+	CHECK(!(DWC(0xc200) & ((1u << 6) | (1u << 8) | (1u << 31))), "GUSB2PHYCFG 0x%08x", DWC(0xc200));
+	CHECK(!(DWC(0xc2c0) & (1u << 31)), "GUSB3PIPECTL still in PHYSOFTRST");
+	CHECK(!(DWC(0xc110) & (1u << 11)) && ((DWC(0xc110) >> 12) & 3u) == 2u && !(DWC(0xc110) & (3u << 6)),
+	    "GCTL 0x%08x after core reset", DWC(0xc110));
+	CHECK(!(DWC(0xc704) & ((1u << 10) | (1u << 12))), "INITU1/U2ENA still set");
 #if SCENARIO == 4
 	CHECK(PHY(0x38) & (1u << 5), "PLL not locked");
 	CHECK(rs_after_lock, "RUN_STOP was set before the PLL locked");

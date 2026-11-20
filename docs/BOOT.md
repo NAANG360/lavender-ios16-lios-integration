@@ -41,6 +41,7 @@ Do **not** use `fastboot reboot recovery`. On this unit it boots Android and MIU
 | `sweetusb=N` | Patch `0200`. `0` off; `1` (default) read-only USB probe; `2` CDC-ECM gadget + live log; `3` also powers the USB GDSC/clocks first (experimental) |
 | `sweetusblog=0` | Keep the gadget, disable the UDP live log |
 | `sweetusbhold=1` | Patch `0210`: USB test boot. Stop in `IOFindBSDRoot` after the USB/keys probe: no root mount, no userland, nothing written to `userdata`; USB, live log, keys and the SYSTEM log keep running, with a status line every 10 s. About a minute instead of a full boot |
+| `sweetusbfix=N` | Patch `0211`: mask of the DWC3 bring-up steps (1 UTMI clock as PIPE clock, 2 core+PHY soft reset, 4 HS quirks); default 7, 0 = off. Bisect with one `sweetusbhold` boot per value |
 | `sweetkeys=0` | Patch `0201`: disable the PMIC key poller (default on, read-only) |
 
 ## Live log over USB (patch 0200)
