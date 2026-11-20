@@ -25,7 +25,7 @@
 | `0216-lavender-rtc-calendar-base.patch` | Calendar base from `sweetrtc=<unix seconds>` when the platform clock answers 0 (the PM660 RTC is not read yet); the shim passes its build time | Kernel only; look for `SWEET RTC: calendar base` and a 2026 date on the lock screen |
 | `0217-lavender-sweetnopb.patch` | `sweetnopb=1` makes the exec of `PosterBoard` fail with EPERM, to isolate the poster crash from the rest of the lock screen | Diagnostic, off by default |
 
-| `0220-lavender-pm660-rtc.patch` | Skip XNU's 30 s wait for an `IORTC` resource (as XNU does for BCM2837) and feed the calendar from the PM660 RTC over SPMI (read-only; `sweetrtcoff=` when the raw count is not Unix time) | Host-tested; not yet run on the device |
+| `0220-lavender-pm660-rtc.patch` | Skip XNU's 30 s wait for an `IORTC` resource (as XNU does for BCM2837) and feed the calendar from the PM660 RTC over SPMI (read-only; `sweetrtcoff=` when the raw count is not Unix time) | **On device**: the 30 s wait is gone (eMMC/USB at ~16 s instead of ~46 s); RTC read (raw `230219452`, not Unix time: offset measured in TWRP) |
 
 New lavender work takes the next free number from `0200` up.
 

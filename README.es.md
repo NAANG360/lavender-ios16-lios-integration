@@ -38,7 +38,7 @@ El port se apoya en [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-6
 | Audio | **Falta** | Sin driver de codec |
 | Batería / carga | **Parcial** | Fallback estático (100 %, 4200 mV); sin gauge |
 | Colores del lock screen | **A verificar** | En la foto, fecha, hora y barra de estado salen rojas/anaranjadas: tinte del wallpaper o formato de color del framebuffer, sin revisar |
-| RTC / fecha | **Mal** | Muestra 1969/31 de diciembre; el RTC no está seteado |
+| RTC / fecha | **Parcial** | El parche `0220` lee el RTC del PM660. Su cuenta cruda no es hora Unix (Android guarda su propio offset): cada teléfono necesita `sweetrtcoff=` medido una vez en TWRP (`docs/BOOT.md`); sin eso el calendario arranca en la hora de compilación del shim (`sweetrtc`). Falta ver el lock screen con la fecha real |
 | `preboot` / data volume | **Parcial** | `libignition` no encuentra el preboot; el boot sigue sin sellar |
 | Segundo boot / tiempo de boot | **Parcial** | El segundo boot corre sin migración (el plist funciona), pero tarda ~18 min hasta el lock screen |
 

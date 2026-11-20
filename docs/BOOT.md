@@ -111,6 +111,16 @@ python3 tools/sweet-log.py sweetlog.bin boot.txt
 
 If the header says `total 0` or `flush #0`, the eMMC write path did not flush. If it has `CMD24`/`CMD25` `cmd-timeout`, the old SDHCI bug is present (see `docs/TROUBLESHOOTING.md`).
 
+## Clock (patches 0216, 0220)
+
+The PM660 RTC keeps counting while the phone is off, but Android never writes it: its raw count is not Unix time. Measure this phone's offset once, in TWRP, against the PC clock:
+
+```bash
+echo $(( $(date -u +%s) - $(adb shell cat /sys/class/rtc/rtc0/since_epoch | tr -d '\r') ))
+```
+
+and build shims with it (`SWEETRTCOFF=<offset> tools/build-shim.sh <kernel>`, which also adds `sweetrtc=<build time>` as the fallback). The boot log shows `SWEET RTC: PM660 raw <count> s ..., sweetrtcoff <offset> -> <unix time>`. The offset stays valid while the battery keeps the RTC running. On the test unit it is `1564989948` (raw `230220074` at Unix `1795210022`).
+
 ## Recovery when iOS is stuck
 
 Power and the volume keys reach iOS (patch `0201`), and with `sweetusb=2` the USB network and live log work (patches `0210`–`0213`). If the device is still stuck:
