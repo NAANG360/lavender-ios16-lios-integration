@@ -27,6 +27,8 @@
 
 | `0220-lavender-pm660-rtc.patch` | Skip XNU's 30 s wait for an `IORTC` resource (as XNU does for BCM2837) and feed the calendar from the PM660 RTC over SPMI (read-only; `sweetrtcoff=` when the raw count is not Unix time) | **On device**: the 30 s wait is gone (eMMC/USB at ~16 s instead of ~46 s); RTC read (raw `230219452`, not Unix time: offset measured in TWRP) |
 
+| `0230-lavender-touch-spin-timing.patch` | Touch bit-bang I2C with real timing: `delay()` never spins on this port (CPUs registered with `powergate_latency` 0), so every half bit slept until a timer interrupt and a frame took seconds. Spin on the timebase (`sweetouchus=`), adaptive frame length/rate, timing self-test and 10 s stats | Host syntax-checked; not yet run on the device |
+
 New lavender work takes the next free number from `0200` up.
 
 ## Changing the series

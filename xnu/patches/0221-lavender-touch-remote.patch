@@ -145,7 +145,7 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
  			stats.bytes_in = len;
  			ud.rx_frames++;
 +			extern void santoni_touch_remote(const uint8_t *, uint32_t);
-+			santoni_touch_remote(b, len);
++			santoni_touch_remote(frame, len);
  			ifnet_input(ud.ifp, m, &stats);
  		} else if (m != NULL) {
  			mbuf_freem(m);
