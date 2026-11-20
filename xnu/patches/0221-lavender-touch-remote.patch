@@ -1,13 +1,10 @@
-diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
---- a/bsd/dev/sweet_usb.c
-+++ b/bsd/dev/sweet_usb.c
-@@ -490,6 +490,136 @@
- 	ud_start_trb(EP_RX, UD_TRB_RX, UD_RX, UD_FRAME_MAX, TRBCTL_NORMAL);
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -1225,6 +1225,135 @@
+ 	    touch_max_x, touch_max_y);
  }
  
-+extern void sweet_hid_touch(int finger, int down, int x, int y);
-+extern void sweet_hid_key(int key, int down);
-+
 +/*
 + * 0221: remote touch injection over the USB NCM link. The host sends a UDP
 + * datagram to 192.168.7.2:5141 with an ASCII command prefixed by "SWEET ":
@@ -15,10 +12,11 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
 + *   SWEET down X Y | move X Y | up X Y
 + *   SWEET swipe X1 Y1 X2 Y2 [MS]
 + *   SWEET key N D          (0 power, 1 vol+, 2 vol-, 3 home)
-+ * ud_event() runs in the USB kernel thread, so sweet_hid_touch() is safe.
++ * Called from the USB kernel thread (ud_rx_done), so sweet_hid_touch() is
++ * safe here.
 + */
 +static int
-+ud_cmd_uint(const char **pp, int *out)
++santoni_cmd_uint(const char **pp, int *out)
 +{
 +	const char *p = *pp;
 +	int v = 0, n = 0;
@@ -39,9 +37,10 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
 +	return 1;
 +}
 +
-+static void
-+ud_remote_cmd(const uint8_t *frame, uint32_t len)
++void
++santoni_touch_remote(const uint8_t *frame, uint32_t len)
 +{
++	extern void sweet_hid_key(int key, int down);
 +	const uint8_t *ip, *udp, *payload;
 +	uint32_t ihl, udplen, plen;
 +	char buf[96];
@@ -80,31 +79,31 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
 +	p = buf + 6;
 +	if (!strncmp(p, "down ", 5)) {
 +		p += 5;
-+		if (ud_cmd_uint(&p, &x) && ud_cmd_uint(&p, &y)) {
++		if (santoni_cmd_uint(&p, &x) && santoni_cmd_uint(&p, &y)) {
 +			sweet_hid_touch(0, 1, x, y);
 +		}
 +	} else if (!strncmp(p, "move ", 5)) {
 +		p += 5;
-+		if (ud_cmd_uint(&p, &x) && ud_cmd_uint(&p, &y)) {
++		if (santoni_cmd_uint(&p, &x) && santoni_cmd_uint(&p, &y)) {
 +			sweet_hid_touch(0, 1, x, y);
 +		}
 +	} else if (!strncmp(p, "up ", 3)) {
 +		p += 3;
-+		if (ud_cmd_uint(&p, &x) && ud_cmd_uint(&p, &y)) {
++		if (santoni_cmd_uint(&p, &x) && santoni_cmd_uint(&p, &y)) {
 +			sweet_hid_touch(0, 0, x, y);
 +		}
 +	} else if (!strncmp(p, "tap ", 4)) {
 +		p += 4;
-+		if (ud_cmd_uint(&p, &x) && ud_cmd_uint(&p, &y)) {
++		if (santoni_cmd_uint(&p, &x) && santoni_cmd_uint(&p, &y)) {
 +			sweet_hid_touch(0, 1, x, y);
 +			delay(30000);
 +			sweet_hid_touch(0, 0, x, y);
 +		}
 +	} else if (!strncmp(p, "swipe ", 6)) {
 +		p += 6;
-+		if (ud_cmd_uint(&p, &x) && ud_cmd_uint(&p, &y) &&
-+		    ud_cmd_uint(&p, &x2) && ud_cmd_uint(&p, &y2)) {
-+			if (!ud_cmd_uint(&p, &ms)) {
++		if (santoni_cmd_uint(&p, &x) && santoni_cmd_uint(&p, &y) &&
++		    santoni_cmd_uint(&p, &x2) && santoni_cmd_uint(&p, &y2)) {
++			if (!santoni_cmd_uint(&p, &ms)) {
 +				ms = 300;
 +			}
 +			if (ms < 20) {
@@ -129,20 +128,24 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
 +		}
 +	} else if (!strncmp(p, "key ", 4)) {
 +		p += 4;
-+		if (ud_cmd_uint(&p, &x) && ud_cmd_uint(&p, &y)) {
++		if (santoni_cmd_uint(&p, &x) && santoni_cmd_uint(&p, &y)) {
 +			sweet_hid_key(x, y);
 +		}
 +	}
 +}
 +
- static void
- ud_rx_done(void)
+ int
+ santoni_touch_probe(void)
  {
-@@ -498,6 +628,7 @@
- 	uint32_t len = UD_FRAME_MAX - (t[2] & 0xffffff);
- 	ud_sync(UD_RX, UD_FRAME_MAX);
- 	if (ud.ifp != NULL && len >= ETHER_HDR_LEN && len <= ETHER_MAX_LEN) {
-+		ud_remote_cmd((const uint8_t *)(ud.dma + UD_RX), len);
- 		/*
- 		 * One mbuf with a 2 KiB cluster holds any frame. (mbuf_allocpacket
- 		 * may return a first mbuf of length 0: stripping the header from
+diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+--- a/bsd/dev/sweet_usb.c
++++ b/bsd/dev/sweet_usb.c
+@@ -519,6 +519,8 @@
+ 			stats.packets_in = 1;
+ 			stats.bytes_in = len;
+ 			ud.rx_frames++;
++			extern void santoni_touch_remote(const uint8_t *, uint32_t);
++			santoni_touch_remote((const uint8_t *)(ud.dma + UD_RX), len);
+ 			ifnet_input(ud.ifp, m, &stats);
+ 		} else if (m != NULL) {
+ 			mbuf_freem(m);
