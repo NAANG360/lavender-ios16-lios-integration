@@ -49,6 +49,7 @@ bash tests/host/run.sh /tmp/lavender-tree
 | `test_lavender_usb_3` | `sweetusb=1` with the USB off: DWC3 and the PHY are never mapped and nothing is written |
 | `test_lavender_usb_4` | `0210`, the state of the first lavender boot (USB on, QUSB2 `POWERDOWN 0x23`, PLL unlocked, TCSR clamp engaged) with `sweetusb=2`: the clamp is released, `POWERDOWN` becomes `0x22`, `PORT_TUNE1` is kept, the PLL locks before `RUN_STOP`; `sweetusbhold=1` stays in its status loop |
 | `test_lavender_usb_6` | `0211` off (`sweetusbfix=0`) on a model where `SETEPCONFIG` only completes after a PHYSOFTRST with the PLL locked: reproduces the device log (`ep0 cmd 0x1 timeout`, no `RUN_STOP`). Scenarios 2/4 check the `0211` steps (GENERAL_CFG `0x9`, GUCTL1 bits 17/26, SUSPHY/ENBLSLPM/PHYSOFTRST clear, GCTL device + RAMCLKSEL 0, U1/U2 off) |
+| `test_lavender_usb_4`/`_5` (0212) | Start from `UTMI_CTRL2 0x40` (`TEST_MUX_SEL`, as in every lavender log) and expect the mux released (`0x00`) |
 | `test_lavender_usb_5` | `0210` with the PHY supplies off (PLL never locks): the wait is bounded (5 ms), the gadget still starts, `sweetusbhold=0` returns at once |
 | topaz syntax check | `sweet_keys.c` still compiles without `ARM64_BOARD_CONFIG_LAVENDER` |
 

@@ -20,6 +20,8 @@
  * SCENARIO 5 (0210, PHY supplies off: the PLL never locks): the wait is
  *   bounded; with no PHY clock SETEPCONFIG hangs, so nothing runs (0211
  *   model); sweetusbhold=0 returns at once.
+ * SCENARIOS 4/5 also start from UTMI_CTRL2 = 0x40 (TEST_MUX_SEL, every lavender
+ *   log) and expect 0212 to release it (0x00).
  * SCENARIO 6 (0211 off, sweetusbfix=0): reproduces the device log of boot
  *   usbtest-0210: PHY locked, "ep0 cmd 0x1 timeout", no RUN_STOP.
  * SCENARIOS 4/2 also check the 0211 bring-up: UTMI clock as PIPE clock,
@@ -306,6 +308,7 @@ main(void)
 	PHY(0x38) = 0x10101010u;                        /* PLL_STATUS without lock */
 	PHY(0x80) = 0xf8f8f8f8u;
 	PHY(0xb4) = 0x23232323u;                        /* CLAMP_N_EN|FREEZIO_N|POWER_DOWN */
+	PHY(0xc4) = 0x40404040u;                        /* UTMI_CTRL2: TEST_MUX_SEL, as logged */
 	TCSR_CLAMP = 0;
 	pll_can_lock = (SCENARIO == 4);
 	mock_bootarg_sweetusb = 2;
@@ -313,6 +316,7 @@ main(void)
 	CHECK(TCSR_CLAMP == 1, "TCSR clamp not released (0x%08x)", TCSR_CLAMP);
 	CHECK((PHY(0xb4) & 0xffu) == 0x22, "POWERDOWN 0x%02x, want 0x22", PHY(0xb4) & 0xffu);
 	CHECK((PHY(0x80) & 0xffu) == 0xf8, "PORT_TUNE1 changed");
+	CHECK((PHY(0xc4) & 0xffu) == 0, "UTMI_CTRL2 0x%02x: test mux not released (0212)", PHY(0xc4) & 0xffu);
 #if SCENARIO == 4
 	CHECK(DWC(0xc704) & (1u << 31), "RUN_STOP not set");
 	CHECK(mock_nthreads == 2, "threads %u, want event + live-log", mock_nthreads);
