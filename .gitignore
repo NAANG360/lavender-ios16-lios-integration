@@ -1,0 +1,39 @@
+# Large artifacts and local state are never committed.
+artifacts/
+refs/
+work/
+
+# Apple firmware and images
+*.ipsw
+*.dmg
+*.im4p
+*.simg
+*.img
+*.bin
+
+# Kernel/shim build outputs
+kernel.development.*
+*.o
+*.a
+*.dSYM/
+*.unstripped
+build/
+out/
+
+# Logs and dumps
+*.log
+*.txt
+sweetlog*.bin
+*.core
+*.panic
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local secrets / personal data
+*.pem
+*.key
+.env

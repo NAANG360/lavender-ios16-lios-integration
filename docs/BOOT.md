@@ -1,0 +1,109 @@
+# Boot chain, logs and recovery
+
+## Boot chain
+
+```
+Xiaomi ABL (unlocked)
+  -> recovery partition: lavender shim (Power + Volume Up)
+  -> shim copies the kernel + ADT + boot args, hands off to XNU
+  -> XNU: GICv3, timers, 4 Gold CPUs, SDCC v5, framebuffer
+  -> HFSX root from userdata (rd=emmcroot0)
+  -> launchd -> mount-phase-1/2 -> backboardd -> SpringBoard
+  -> iOS 16 lock screen
+```
+
+The shim is a minimal bootloader. It is **not** a full UEFI/DarwinBoot implementation; it prepares the CPU, the DT and the payload, then jumps to XNU.
+
+## Flashing the shim
+
+`fastboot boot <image>` is stubbed by this ABL: it returns `OKAY` but does not execute the image. The working sequence is:
+
+```bash
+fastboot flash recovery shim-boot-lavender-0192-lite-cpus4-2026-11-19.img
+```
+
+Then power off and hold **Power + Volume Up** until the Apple logo/shim console.
+
+Do **not** use `fastboot reboot recovery`. On this unit it boots Android and MIUI restores the stock recovery. If that happens, flash the shim again and use the key combo.
+
+## Boot arguments
+
+| Argument | Purpose |
+| --- | --- |
+| `rd=emmcroot0` | Root device: HFSX image in `userdata` |
+| `emmcrw=1 rootrw=1` | Allow eMMC writes / read-write root |
+| `cpus=4` | Four Gold A73 cores; `cpus=1` is the safe fallback |
+| `sweetlog=1` | 4 MiB persistent console ring on SYSTEM |
+| `sweetfb_native=1` | Use the native panel canvas |
+| `sweetfb_noconsole=1` | Stop drawing the kernel console over the GUI |
+| `sweetfb_stayon=1` | Do not blank the panel during boot |
+| `sweetfb_hz=30` | Software composition refresh target |
+| `cs_enforcement_disable=1` | Do not kill the unsealed root |
+| `unentitled_ios_sim_launch=1` | Allow the iOS platform binaries to exec |
+| `launchd_unsecure_cache=1` | Skip the AMFI service lookup in the cache loader |
+| `wdt=-1 wdt_test=no_user_checkin` | Keep the bring-up watchdog quiet |
+| `serial=1` | Serial console (UART) |
+
+The full line used for the lock-screen boot is in `docs/BUILD.md`.
+
+## What a good boot looks like
+
+```
+Darwin Kernel Version 22.6.0
+SWEET CPU: requested=4 selected=4 (limit=8)
+SWEET CPU: 4/4 CPUs initialized, SGI1 verified
+WHYRED SDHCI: enumeration complete: 25 MHz, 8-bit, high-speed
+BSD root: emmcroot0
+hfs: mounted iOSRoot on device b(2, 0)
+exec launchd
+WHYRED LOG: first flush ok (13300 bytes, header ok)
+Early boot complete. Continuing system boot.
+SWEET FB: display on
+SWEET FB: swap 1..6
+exec SpringBoard
+```
+
+A boot with no `CMD24`/`CMD25` timeouts and a growing `SANTONILOG1` total is healthy. The lock screen appears after the first-boot data migration.
+
+## Log ring
+
+- Location: first 8193 sectors of the SYSTEM partition.
+- Sector 0: `struct santoni_log_header` (36 bytes): magic `SANTONILOG1`, version 1, ring size 4 MiB, total bytes, flush sequence.
+- Sectors 1..8192: the circular ring.
+- The kernel appends every console character; the flusher writes whole 512-byte blocks.
+
+Pull it from TWRP:
+
+```bash
+adb push tools/pull-sweetlog.sh /tmp/
+adb shell sh /tmp/pull-sweetlog.sh
+adb pull /tmp/sweetlog.bin sweetlog.bin
+python3 tools/sweet-log.py sweetlog.bin boot.txt
+```
+
+If the header says `total 0` or `flush #0`, the eMMC write path did not flush. If it has `CMD24`/`CMD25` `cmd-timeout`, the old SDHCI bug is present (see `docs/TROUBLESHOOTING.md`).
+
+## Recovery when iOS is stuck
+
+The current port has **no working buttons and no USB gadget** while iOS runs. If the device is stuck at the lock screen:
+
+1. Hold **Power** for 20–30 seconds (PMIC hardware reset).
+2. Try **Power + Volume Down** 20–30 s, then **Power + Volume Up** 20–30 s.
+3. If nothing works, unplug the charger and let the battery drain. The iOS root is on eMMC and is not lost.
+4. When it powers off, charge it and boot with **Power + Volume Up**.
+
+To get back to TWRP, flash `twrp-3.7.0_9-0-lavender.img` to `recovery` from fastboot. TWRP can read the SYSTEM log area and the raw partitions.
+
+## First boot vs later boots
+
+- **First boot on a fresh root image:** `DataMigration` runs and can take tens of minutes. With `cpus=4` it is faster than the `cpus=1` reference, but still slow. Let it finish.
+- **Later boots:** the image carries `com.apple.DataMigration.plist` with `LastSystemVersion = 20H392`; `DataMigration` should skip. The second-boot check is still pending because the buttons do not work.
+- If the migration never completes, the likely cause is the missing data volume (`mount: data volume missing`) or a migration that cannot record completion. See `docs/TROUBLESHOOTING.md`.
+
+## Known non-fatal messages
+
+- `libignition: failed to lookup preboot: 25` — the preboot volume is missing; the boot continues unsealed. whyred reached its home screen with the same message.
+- `mount: data volume missing, but not required in env: 0` — the port uses the root HFSX for `/private/var`; no separate APFS data volume.
+- `SWEET AKS: securityd sel 10 … -> 0xe00002c7` — `WrapKey` is not implemented in the AKS stub; `kIOReturnUnsupported`.
+- `CRASH driverkitd` — known userspace crash; it does not stop the boot.
+- `CODE SIGNING: cs_validate_page … no hash to validate` — expected with the unsealed root; not fatal.
