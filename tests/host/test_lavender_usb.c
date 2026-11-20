@@ -13,7 +13,14 @@
  *   and live-log threads are started.
  * SCENARIO 3 (sweetusb=1, ABL left USB off): nothing beyond GCC status is
  *   read and nothing is written.
+ * SCENARIO 4 (0210, sweetusb=2, the state of the first lavender boot: USB
+ *   on, QUSB2 powered down 0x23, PLL unlocked, TCSR clamp engaged): the
+ *   clamp is released, POWER_DOWN cleared keeping 0x22, the PLL locks before
+ *   RUN_STOP; sweetusbhold=1 then stays in its status loop.
+ * SCENARIO 5 (0210, PHY supplies off: the PLL never locks): the wait is
+ *   bounded and the gadget still starts; sweetusbhold=0 returns at once.
  */
+#include <setjmp.h>
 #include "mock_mmio.h"
 
 void mock_barrier(void);
@@ -23,6 +30,12 @@ void mock_barrier(void);
 #define T_DWC3_PA    0x0a800000u
 #define T_QS_PA      0x0a8f8800u
 #define T_QUSB2_PA   0x0c012000u
+#define T_TCSR_PAGE  0x01fcb000u
+#define TCSR_CLAMP   (*mock_reg(T_TCSR_PAGE + 0x24c))
+#define PHY(off)     (*mock_reg(T_QUSB2_PA + (off)))
+
+static bool pll_can_lock = true;
+static bool rs_after_lock = true;      /* RUN_STOP never set while the PLL is unlocked */
 
 static const uint32_t cbcr_offs[7] = { 0xf008, 0xf00c, 0xf010, 0x5018, 0xf03c, 0x6a004, 0x88018 };
 
@@ -51,6 +64,17 @@ hw_step(void)
 	for (unsigned ep = 0; ep < 8; ep++) {
 		DWC(0xc80c + 0x10 * ep) &= ~(1u << 10); /* endpoint command done */
 	}
+	/* QUSB2 v1: 8-bit registers, read back in every byte lane */
+	uint32_t pd = PHY(0xb4) & 0xffu;
+	if (PHY(0xb4) != pd * 0x01010101u) {
+		PHY(0xb4) = pd * 0x01010101u;   /* a byte write shows in every lane */
+	}
+	if (pll_can_lock && !(pd & 1u) && (TCSR_CLAMP & 1u) && !(PHY(0x38) & (1u << 5))) {
+		PHY(0x38) |= 0x20202020u;       /* PLL_LOCK (bit 5) */
+	}
+	if ((DWC(0xc704) & (1u << 31)) && !(PHY(0x38) & (1u << 5))) {
+		rs_after_lock = false;
+	}
 }
 
 void
@@ -66,10 +90,16 @@ delay(int usec)
 	hw_step();
 }
 
+static jmp_buf hold_exit;
+static unsigned blocks, block_limit;
+
 wait_result_t
 thread_block(thread_continue_t continuation)
 {
 	(void)continuation;
+	if (block_limit && ++blocks >= block_limit) {
+		longjmp(hold_exit, 1);
+	}
 	return 0;
 }
 
@@ -169,6 +199,8 @@ setup(bool powered, uint32_t gctl)
 	dwc_mem = mock_add_region(T_DWC3_PA, 0xd000);
 	qs_mem = mock_add_region(T_QS_PA, 0x100);
 	phy_mem = mock_add_region(T_QUSB2_PA, 0x400);
+	mock_add_region(T_TCSR_PAGE, 0x1000);
+	TCSR_CLAMP = 1;
 	GDSCR = powered ? (1u << 31) : 1u;              /* SW_COLLAPSE set when off */
 	for (unsigned i = 0; i < 7; i++) {
 		*mock_reg(T_GCC_PA + cbcr_offs[i]) = powered ? 1u : (1u << 31);
@@ -176,8 +208,8 @@ setup(bool powered, uint32_t gctl)
 	DWC(0xc120) = 0x5533290a;                       /* GSNPSID */
 	DWC(0xc110) = gctl;
 	DWC(0xc70c) = 1u << 22;                         /* halted */
-	*mock_reg(T_QUSB2_PA + 0x38) = 1u << 5;           /* PLL locked */
-	*mock_reg(T_QUSB2_PA + 0xb4) = 0x22;              /* powered */
+	*mock_reg(T_QUSB2_PA + 0x38) = 0x20202020u;       /* PLL locked */
+	*mock_reg(T_QUSB2_PA + 0xb4) = 0x22222222u;       /* powered */
 }
 
 int
@@ -233,6 +265,40 @@ main(void)
 	CHECK(memcmp(snap_gcc, gcc_mem, 0x94000) == 0, "sweetusb=1 wrote a GCC register");
 	CHECK(mock_find(T_DWC3_PA, 4)->maps == 0, "unclocked DWC3 was mapped");
 	CHECK(mock_find(T_QUSB2_PA, 4)->maps == 0, "PHY mapped with the controller off");
+#elif SCENARIO == 4 || SCENARIO == 5
+	setup(true, 0x00102000u);                       /* as logged: device mode, halted */
+	PHY(0x38) = 0x10101010u;                        /* PLL_STATUS without lock */
+	PHY(0x80) = 0xf8f8f8f8u;
+	PHY(0xb4) = 0x23232323u;                        /* CLAMP_N_EN|FREEZIO_N|POWER_DOWN */
+	TCSR_CLAMP = 0;
+	pll_can_lock = (SCENARIO == 4);
+	mock_bootarg_sweetusb = 2;
+	sweet_usb_probe();
+	CHECK(TCSR_CLAMP == 1, "TCSR clamp not released (0x%08x)", TCSR_CLAMP);
+	CHECK((PHY(0xb4) & 0xffu) == 0x22, "POWERDOWN 0x%02x, want 0x22", PHY(0xb4) & 0xffu);
+	CHECK((PHY(0x80) & 0xffu) == 0xf8, "PORT_TUNE1 changed");
+	CHECK(DWC(0xc704) & (1u << 31), "RUN_STOP not set");
+	CHECK(mock_nthreads == 2, "threads %u, want event + live-log", mock_nthreads);
+#if SCENARIO == 4
+	CHECK(PHY(0x38) & (1u << 5), "PLL not locked");
+	CHECK(rs_after_lock, "RUN_STOP was set before the PLL locked");
+	mock_bootarg_usbhold = 1;
+	block_limit = 3;
+	if (setjmp(hold_exit) == 0) {
+		sweet_usb_hold();
+		CHECK(0, "sweet_usb_hold returned with sweetusbhold=1");
+	}
+	CHECK(blocks == 3, "hold loop blocked %u times", blocks);
+#else
+	CHECK(!(PHY(0x38) & (1u << 5)), "PLL locked without supplies?");
+	mock_bootarg_usbhold = 0;
+	block_limit = 1;
+	if (setjmp(hold_exit) == 0) {
+		sweet_usb_hold();               /* must return without blocking */
+	} else {
+		CHECK(0, "sweetusbhold=0 blocked");
+	}
+#endif
 #endif
 	if (mock_failures) {
 		fprintf(stderr, "test_lavender_usb scenario %d: %u failure(s)\n", SCENARIO, mock_failures);

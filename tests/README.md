@@ -47,6 +47,8 @@ bash tests/host/run.sh /tmp/lavender-tree
 | `test_lavender_usb_1` | `sweetusb=1` with everything powered: no GCC/DWC3/QSCRATCH/PHY register changes; the SM7150 addresses are never mapped; the probe runs once |
 | `test_lavender_usb_2` | `sweetusb=3` with the USB off and the core in OTG: GDSC and the 7 branch clocks enabled, `GCTL.PrtCapDir` set to device without touching other bits, VBUS override in QSCRATCH, `RUN_STOP`, event buffer in our DMA page, `ue0` created and configured, event and live-log threads started |
 | `test_lavender_usb_3` | `sweetusb=1` with the USB off: DWC3 and the PHY are never mapped and nothing is written |
+| `test_lavender_usb_4` | `0210`, the state of the first lavender boot (USB on, QUSB2 `POWERDOWN 0x23`, PLL unlocked, TCSR clamp engaged) with `sweetusb=2`: the clamp is released, `POWERDOWN` becomes `0x22`, `PORT_TUNE1` is kept, the PLL locks before `RUN_STOP`; `sweetusbhold=1` stays in its status loop |
+| `test_lavender_usb_5` | `0210` with the PHY supplies off (PLL never locks): the wait is bounded (5 ms), the gadget still starts, `sweetusbhold=0` returns at once |
 | topaz syntax check | `sweet_keys.c` still compiles without `ARM64_BOARD_CONFIG_LAVENDER` |
 
 The simulated registers check the driver's logic and its addresses. They do not show that the hardware behaves the same way. The first device boot with `sweetusb=1` is the real check (see `docs/BOOT.md`).

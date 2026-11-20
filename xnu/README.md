@@ -15,8 +15,9 @@
 | `0189`, `0190` | SDHCI exact PIO + cache state; GIC RWP wait and reset cleanup | On device |
 | `0191-lavender-touch-stub-common-headers.patch` | Shared `santoni_touch_probe()` entry point built as an unsupported-board stub | On device (stub) |
 | `0192-sdhci-wait-card-ready-after-write.patch` | Wait for DAT0 + `TRAN`/`READY_FOR_DATA` (CMD13) after every PIO write; the eMMC write fix | On device: reached the lock screen |
-| `0200-lavender-usb-gadget.patch` | SDM660 USB device (DWC3) with the CDC-ECM network and live log; starts the input and USB drivers on lavender | Host-tested; not yet built or run on the device |
-| `0201-lavender-pmic-keys.patch` | Power / Volume Up / Volume Down through the SDM660 SPMI arbiter v3 | Host-tested; not yet built or run on the device |
+| `0200-lavender-usb-gadget.patch` | SDM660 USB device (DWC3) with the CDC-ECM network and live log; starts the input and USB drivers on lavender | On device (`sweetusb=1`): controller powered and clocked, in device mode; PHY powered down, so it needs `0210` |
+| `0201-lavender-pmic-keys.patch` | Power / Volume Up / Volume Down through the SDM660 SPMI arbiter v3 | **On device**: all three keys reach `SWEET HID` (log `sweetlog-usbkeys-0202`) |
+| `0210-lavender-usb-phy-power-and-hold.patch` | Power up the QUSB2 v1 PHY that ABL leaves powered down (`sweetusb>=2`); `sweetusbhold=1` USB test boot that stops before the root mount | Host-tested; not yet run on the device |
 
 New lavender work takes the next free number from `0200` up.
 

@@ -36,7 +36,7 @@ $CC $FLAGS -DKEYS_SOURCE="\"$out/src/sweet_keys.c\"" "$here/test_lavender_keys.c
 "$out/test_lavender_keys"
 
 echo "== LAVENDER USB (0200) =="
-for s in 1 2 3; do
+for s in 1 2 3 4 5; do
 	$CC $FLAGS -DSCENARIO=$s -DUSB_SOURCE="\"$out/src/sweet_usb.c\"" \
 		"$here/test_lavender_usb.c" -o "$out/test_lavender_usb_$s"
 	"$out/test_lavender_usb_$s"

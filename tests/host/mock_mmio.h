@@ -90,6 +90,7 @@ mock_pa_of(vm_offset_t va)
 
 /* Boot-args */
 static int mock_bootarg_sweetusb = -1, mock_bootarg_sweetkeys = -1, mock_bootarg_usblog = -1;
+static int mock_bootarg_usbhold = -1;
 
 int
 PE_parse_boot_argn(const char *name, void *value, int size)
@@ -101,6 +102,8 @@ PE_parse_boot_argn(const char *name, void *value, int size)
 		v = mock_bootarg_sweetkeys;
 	} else if (strcmp(name, "sweetusblog") == 0) {
 		v = mock_bootarg_usblog;
+	} else if (strcmp(name, "sweetusbhold") == 0) {
+		v = mock_bootarg_usbhold;
 	}
 	if (v < 0 || size != sizeof(int)) {
 		return 0;
