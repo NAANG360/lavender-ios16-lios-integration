@@ -10,13 +10,13 @@ The port boots to the iOS 16.7.16 lock screen. The next work is ordered by what 
    - Verify with the probe patches `0184`–`0188` and a raw I2C scan before writing the driver.
    - Check the panel variant: Synaptics uses `0x20`; this unit is Novatek.
 
-2. **PM660/PM660L buttons**: patch `0201` is written and host-tested; the device boot is next.
+2. **PM660/PM660L buttons**: done (patch `0201`, confirmed on the device).
    - Power (PM660 KPDPWR), Volume Down (RESIN) and Volume Up (PM660L GPIO7) are mapped to HID. Lavender has no camera key.
    - Check the `SWEET KEYS:` lines in `SANTONILOG1` and the `key=N down=…` events on a press.
    - Power long-press should also be handled cleanly; the PMIC hardware reset is the fallback.
    - This unblocks rebooting and testing the second boot.
 
-3. **USB gadget**: patch `0200` is written and host-tested; the device boot is next.
+3. **USB gadget**: done. CDC-NCM network and live log work from Windows (patches `0200`, `0210`–`0213`). Next: adb-style shell or file transfer over it.
    - DWC3 device mode with CDC-ECM and the UDP live log: `sweetusb=1` (read-only probe), `2` (gadget), `3` (also power up the GDSC/clocks).
    - On the first boot, read `SWEET USB: GDSC … (on|off)`. If ABL leaves the PHY regulators off, the next step is the PM660 LDOs plus the DTB `qcom,qusb-phy-init-seq`.
    - Windows has no CDC-ECM driver: add an NCM function, or use macOS/Linux as the host.

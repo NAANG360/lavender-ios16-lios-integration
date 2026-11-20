@@ -22,6 +22,8 @@ This is the honest state of the lavender port as of **2026-11-19**. The device b
 | iOS boot UI | Works | Apple logo, progress bar, lock screen |
 | Code signing bring-up | Works | `cs_enforcement_disable=1`, `unentitled_ios_sim_launch=1`, `launchd_unsecure_cache=1` |
 | AMFI / AKS stubs | Partial | Built-in AMFI policy, `AppleKeyStore` user client; `WrapKey` (selector 10) returns `kIOReturnUnsupported` |
+| Buttons | Works | Patch `0201`: Power (PM660 KPDPWR), Volume Down (RESIN), Volume Up (PM660L GPIO7) over the SPMI arbiter v3, `SWEET HID: key … (1 clients)` |
+| USB network | Works | Patches `0200`, `0210`–`0213`: QUSB2 PHY power-up and UTMI mux release, Linux DWC3 bring-up, CDC-NCM. Windows 11 binds UsbNcm (426 Mbps link), `ping 192.168.7.2` 70/70, live kernel log on UDP 5140 |
 | Persistent log | Works | 4 MiB `SANTONILOG1` ring on SYSTEM; `sweet-log.py` decodes it |
 | DataMigration skip | Partial | `com.apple.DataMigration.plist` with `LastSystemVersion=20H392`; first boot still migrates, later boots should skip |
 | Battery fallback | Partial | Static 100 %, 4200 mV; no gauge |
@@ -32,10 +34,7 @@ This is the honest state of the lavender port as of **2026-11-19**. The device b
 | Subsystem | Status | Why / next step |
 | --- | --- | --- |
 | Touch | Missing | Novatek NT36672 on QUP1 I2C (`0x62`); only probe/stub patches. Need Novatek protocol + PM660 LDO11 + GPIO 66/67 |
-| Power button | Patched, untested | Patch `0201`: PM660 KPDPWR read over the SPMI arbiter v3 and fed to `SWEET HID`. Host-tested; first device boot pending |
-| Volume buttons | Patched, untested | Patch `0201`: Volume Down = PM660 RESIN, Volume Up = PM660L GPIO7. Host-tested; first device boot pending |
 | Camera button | N/A | Lavender has no camera key; the DTB `camera_*` entries are reference-board leftovers |
-| USB gadget | Patched, untested | Patch `0200`: DWC3 device mode, CDC-ECM `ue0` 192.168.7.2, UDP live log (`sweetusb=2`/`3`). Host-tested; unknown whether ABL leaves USB powered on a recovery-partition boot |
 | GPU acceleration | Missing | Adreno 512 has no driver; empty `IOAcceleratorES` keeps QuartzCore from waiting 30 s; rendering is software |
 | Camera | Missing | Camera stack and button are not implemented |
 | Wi-Fi | Missing | No WCN3990 firmware/driver |
@@ -46,7 +45,7 @@ This is the honest state of the lavender port as of **2026-11-19**. The device b
 | RTC | Wrong | Clock shows 1969/December 31; RTC not set |
 | `preboot` | Partial | `libignition: failed to lookup preboot: 25`; boot continues unsealed |
 | Data volume | Partial | `mount: data volume missing, but not required in env: 0`; `/private/var` is on the root HFSX |
-| Second boot | Pending | First boot completed the migration; the second-boot check waits for the `0201` buttons to be confirmed on the device |
+| Second boot | Partial | Runs without the data migration (`sweetlog-usbkeys-0202`), but takes ~18 min to the lock screen surfaces |
 | Daily driver | No | This is a research bring-up |
 
 ## Boot milestones observed in the log

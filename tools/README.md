@@ -5,6 +5,7 @@
 | `pull-sweetlog.sh` | Run inside TWRP: dump the 8193-sector `SANTONILOG1` area from SYSTEM to `/tmp/sweetlog.bin` |
 | `sweet-log.py` | Decode `sweetlog.bin` (header + 4 MiB ring) to text; `--salvage` for a blank header |
 | `fix-datamigration.sh` | macOS/root: add `com.apple.DataMigration.plist` (`LastSystemVersion=20H392`) to the raw HFSX image and regenerate the sparse image |
+| `usbnet-windows.ps1` | Windows host side of the USB network (patch `0213`): find the NCM adapter, set 192.168.7.1/24, open UDP 5140 on it, ping the phone, print/save the live kernel log (elevated PowerShell) |
 | `build-shim.sh` | Build a lavender shim from a base checkout + kernel with the known-good boot args |
 
 ## Log pull

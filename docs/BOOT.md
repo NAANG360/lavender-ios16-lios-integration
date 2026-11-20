@@ -50,8 +50,15 @@ Do **not** use `fastboot reboot recovery`. On this unit it boots Android and MIU
 
 With `sweetusb=2` (or `3`) the phone appears as a USB Ethernet device (`1209:0001`). It configures itself as `ue0` 192.168.7.2/24 and every 100 ms streams the console as UDP to 192.168.7.1:5140, starting with the last 64 KiB.
 
+With patch `0213` the function is CDC-NCM (default; `sweetusbncm=0` = CDC-ECM). Windows 10 2004+/11 binds its in-box UsbNcm driver. From an elevated PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\usbnet-windows.ps1 -Log live.txt
+```
+
+It waits for the adapter, sets 192.168.7.1/24, allows UDP 5140 on that interface, pings the phone and prints the live console. On macOS/Linux:
+
 ```bash
-# macOS / Linux host (Windows has no CDC-ECM driver)
 sudo ip addr add 192.168.7.1/24 dev <usb-if> && sudo ip link set <usb-if> up   # Linux
 nc -ul 5140            # live console
 ping 192.168.7.2       # link check
@@ -105,7 +112,7 @@ If the header says `total 0` or `flush #0`, the eMMC write path did not flush. I
 
 ## Recovery when iOS is stuck
 
-Until the `0200`/`0201` USB and button drivers are confirmed on the device, assume **no working buttons and no USB** while iOS runs. If the device is stuck at the lock screen:
+Power and the volume keys reach iOS (patch `0201`), and with `sweetusb=2` the USB network and live log work (patches `0210`–`0213`). If the device is still stuck:
 
 1. Hold **Power** for 20–30 seconds (PMIC hardware reset).
 2. Try **Power + Volume Down** 20–30 s, then **Power + Volume Up** 20–30 s.

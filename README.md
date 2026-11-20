@@ -4,7 +4,7 @@ A non-commercial research port of **XNU 8796** (Darwin 22 / iOS 16) and the **iP
 
 ![iOS 16 lock screen on the Redmi Note 7](docs/images/lock-screen.jpg)
 
-> **Status: boots to the iOS 16.7.16 lock screen.** This is an experimental bring-up, not a daily driver. Touch, GPU acceleration, Wi-Fi, audio and battery are not working yet. Drivers for the physical buttons and USB are written and host-tested (patches `0201`/`0200`) but not yet confirmed on the device. No Apple binaries are distributed in this repository.
+> **Status: boots to the iOS 16.7.16 lock screen.** This is an experimental bring-up, not a daily driver. Physical buttons and USB networking (CDC-NCM: ping and a live kernel log from Windows) work on the device. Touch, GPU acceleration, Wi-Fi, audio and battery are not working yet. No Apple binaries are distributed in this repository.
 
 The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-69/ios-lavender) (branch `lavender`), itself derived from [`dipa-studio/ios-sweet`](https://github.com/dipa-studio/ios-sweet). This repository documents the lavender-specific bring-up, the patches that made eMMC writes reliable, and the current state of the device.
 
@@ -29,8 +29,8 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 | Area | Status | Notes |
 | --- | --- | --- |
 | Touch | **Missing** | Novatek NT36672 on QUP1 I2C (`0x62`); only probe/stub patches exist |
-| Physical buttons | **Patched, untested** | Patch `0201`: Power/Volume through the SDM660 SPMI arbiter v3; host-tested, first device boot pending |
-| USB gadget | **Patched, untested** | Patch `0200`: DWC3 CDC-ECM network + live log (`sweetusb=2`/`3`); host-tested, first device boot pending |
+| Physical buttons | **Works** | Patch `0201`: Power/Volume Up/Volume Down through the SDM660 SPMI arbiter v3, delivered to iOS HID |
+| USB network | **Works** | Patches `0200`, `0210`–`0213`: DWC3 + QUSB2 bring-up, CDC-NCM (Windows UsbNcm, macOS, Linux), `ping 192.168.7.2`, live kernel log on UDP 5140 (`sweetusb=2`; `tools/usbnet-windows.ps1`) |
 | GPU acceleration | **Missing** | Adreno 512 has no driver; an empty `IOAcceleratorES` keeps QuartzCore from waiting, rendering is software |
 | Camera | **Missing** | Camera button and camera stack are not implemented |
 | Wi-Fi / Bluetooth | **Missing** | No Wi-Fi firmware/driver; `bluetoothd` respawns without hardware |
@@ -39,7 +39,7 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 | Panel orientation | **Wrong** | The lock screen is rotated 90°; the panel/ADT orientation still needs to be fixed |
 | RTC / date | **Wrong** | The clock shows 1969/December 31; the RTC is not set |
 | `preboot` / data volume | **Partial** | `libignition` cannot find the preboot volume; the boot continues unsealed |
-| Second boot / persistence | **Pending** | The first boot completed the data migration; the second-boot check waits for the buttons to be confirmed on the device |
+| Second boot / persistence | **Pending** | The first boot completed the data migration; the second boot ran without the migration (the `DataMigration` plist works); it still takes ~18 min to the lock screen |
 
 ## Milestones
 
@@ -50,7 +50,8 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 - **2026-11-19 — Four Gold cores.** `cpus=4` brings up all four A73 cores; the A53 Silver cores stay parked because they cannot run 16 KiB pages.
 - **2026-11-19 — First-boot data migration.** A fresh root image needs one long `DataMigration` pass. The image now carries `com.apple.DataMigration.plist` with `LastSystemVersion = 20H392`, so subsequent boots should skip it.
 - **2026-11-19 — iOS 16 lock screen.** The device reached the iOS 16.7.16 lock screen: `Wednesday, December 31`, `4:37`, the camera shortcut and the home indicator are visible. This is the current state.
-- **2026-11-20 — USB and button drivers (host-tested).** `sweet_usb.c` and `sweet_keys.c` were compiled for lavender but never called (their only caller is the UFS path), and they used other SoCs' addresses. Patches `0200`/`0201` port them to SDM660 with addresses from the phone's DTB and start them on lavender. Not yet built in CI or run on the device.
+- **2026-11-20 — USB and button drivers (host-tested).** `sweet_usb.c` and `sweet_keys.c` were compiled for lavender but never called (their only caller is the UFS path), and they used other SoCs' addresses. Patches `0200`/`0201` port them to SDM660 with addresses from the phone's DTB and start them on lavender. On the device the keys worked at once; USB needed three more fixes found with ~1-minute `sweetusbhold` boots: `0210` powers the QUSB2 PHY ABL leaves off, `0211` brings the DWC3 core up as Linux does, `0212` releases the PHY's UTMI test mux.
+- **2026-11-20 — USB network on Windows.** `0213` turns the gadget into CDC-NCM: Windows 11 binds its in-box UsbNcm driver, `ping 192.168.7.2` answers (70/70, 1400-byte frames) and the kernel console streams live to the PC. No more TWRP round-trips to read a log.
 
 ## Hardware
 
@@ -137,4 +138,4 @@ This is a research project. XNU is open source under the Apple Public Source Lic
 
 ## Contributing
 
-The most useful next steps are the Novatek touch driver, the first device boot of the `0200`/`0201` USB and button drivers, and the panel orientation. If you have a lavender unit and can test, open an issue with the boot log and the exact panel/touch variant.
+The most useful next steps are the Novatek touch driver, the panel orientation and the boot time (~18 min to the lock screen). If you have a lavender unit and can test, open an issue with the boot log and the exact panel/touch variant.
