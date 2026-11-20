@@ -1,20 +1,13 @@
 diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
 --- a/bsd/dev/sweet_usb.c
 +++ b/bsd/dev/sweet_usb.c
-@@ -39,6 +39,9 @@
- static void sweet_usb_gadget_start(vm_offset_t dwc);
- extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+@@ -490,6 +490,136 @@
+ 	ud_start_trb(EP_RX, UD_TRB_RX, UD_RX, UD_FRAME_MAX, TRBCTL_NORMAL);
+ }
  
 +extern void sweet_hid_touch(int finger, int down, int x, int y);
 +extern void sweet_hid_key(int key, int down);
 +
- #define GCC_PA                  0x00100000
- #define GCC_SIZE                0x00090000
- #define GCC_USB30_PRIM_GDSCR    0x0f004         /* bit 31: power on */
-@@ -490,6 +493,133 @@
- 	ud_start_trb(EP_RX, UD_TRB_RX, UD_RX, UD_FRAME_MAX, TRBCTL_NORMAL);
- }
- 
 +/*
 + * 0221: remote touch injection over the USB NCM link. The host sends a UDP
 + * datagram to 192.168.7.2:5141 with an ASCII command prefixed by "SWEET ":
