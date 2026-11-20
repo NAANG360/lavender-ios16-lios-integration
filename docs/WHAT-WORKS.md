@@ -37,13 +37,14 @@ This is the honest state of the lavender port as of **2026-11-19**. The device b
 | Touch | Missing | Novatek NT36672 on QUP1 I2C (`0x62`); only probe/stub patches. Need Novatek protocol + PM660 LDO11 + GPIO 66/67 |
 | Camera button | N/A | Lavender has no camera key; the DTB `camera_*` entries are reference-board leftovers |
 | GPU acceleration | Missing | Adreno 512 has no driver; empty `IOAcceleratorES` keeps QuartzCore from waiting 30 s; rendering is software |
+| PosterBoard / lock-screen poster | Crash | `PosterBoard` traps in `-[PBFPosterExtensionDataStore _stateLock_setupSwitcherConfigurationForFirstTime]` when SpringBoard prewarms it (symbolicated, see TROUBLESHOOTING); `sweetnopb=1` (patch `0217`) keeps it from running for the isolation test |
 | Camera | Missing | Camera stack and button are not implemented |
 | Wi-Fi | Missing | No WCN3990 firmware/driver |
 | Bluetooth | Missing | `bluetoothd` respawns without hardware |
 | Audio | Missing | No codec driver |
 | Battery gauge | Missing | Static fallback only |
 | Lock screen colours | To verify | Date, clock and status bar render red/orange in the lock screen photo: wallpaper tint or framebuffer colour format, not checked |
-| RTC | Wrong | Clock shows 1969/December 31; RTC not set |
+| RTC | Partial | Shows 1969/December 31 because the PM660 RTC is not read; `sweetrtc` (patch `0216`) supplies a build-time base and the clock advances from it |
 | `preboot` | Partial | `libignition: failed to lookup preboot: 25`; boot continues unsealed |
 | Data volume | Partial | `mount: data volume missing, but not required in env: 0`; `/private/var` is on the root HFSX |
 | Second boot | Partial | Runs without the data migration (`sweetlog-usbkeys-0202`), but takes ~18 min to the lock screen surfaces |

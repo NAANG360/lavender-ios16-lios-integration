@@ -27,45 +27,55 @@ The port boots to the iOS 16.7.16 lock screen. The next work is ordered by what 
    - Check whether that is the iOS 16 wallpaper tint or a framebuffer pixel-format (channel order/alpha) issue before changing anything.
    - Touch coordinates map to the panel as it is: native portrait 1080×2340.
 
-5. **Second boot / boot time**
+5. **PosterBoard / lock-screen poster**
+   - SpringBoard's `prewarm` XPC reaches `PosterBoard`, which traps in
+     `-[PBFPosterExtensionDataStore _stateLock_setupSwitcherConfigurationForFirstTime]`
+     (assertion on `_stateLock_switcherConfiguration`) and is restarted by launchd.
+   - Reproduce with `sweetnopb=1` (patch `0217`) and the swap telemetry (`0215`): if the UI
+     lives without the poster, the gate is its data store, not the renderer.
+   - Fix directions: reset the persisted data store on the HFSX root, or adopt bergamota's
+     userland swizzles for the HFS/no-data-protection checks (`sweetfp.m`, `sweetpb26.m`).
+   - Not caused by the empty `IOAcceleratorES`: the symbolicated stack never enters Metal.
+
+6. **Second boot / boot time**
    - Done: the second boot skips the data migration (`DataMigration` plist).
    - Still ~18 min to the lock screen: use the USB live log (`sweetusb=2`) to find where the time goes.
 
 ## P1 — platform completeness
 
-6. **Data volume / preboot**
+7. **Data volume / preboot**
    - `libignition: failed to lookup preboot: 25` and `mount: data volume missing` are still present.
    - Create a proper data volume or bind the preboot paths; reduce the first-boot migration.
    - whyred reached its home screen without a full preboot, so this may be a warning rather than a hard gate.
 
-7. **GPU**
+8. **GPU**
    - Adreno 512 has no iOS driver. The empty `IOAcceleratorES` is only a workaround.
    - Investigate a Mesa/freedreno path or a minimal `IOAccelerator` that serves `IOSurface`.
    - The topaz port has GPU work on a related Adreno generation; use it as a reference, not a transplant.
 
-8. **RTC**
+9. **RTC**
    - Set the PMIC RTC so the date is not 1969/December 31.
 
-9. **Wi-Fi / Bluetooth**
+10. **Wi-Fi / Bluetooth**
    - WCN3990 firmware/driver is missing. The whyred/topaz trees have reference code.
 
-10. **Audio**
+11. **Audio**
     - No codec driver. The PM660/PM660L audio path needs bring-up.
 
-11. **Battery gauge**
+12. **Battery gauge**
     - The current fallback is static (100 %, 4200 mV). Add the PM660 gauge.
 
 ## P2 — research
 
-12. **4 KiB pages / 8 cores**
+13. **4 KiB pages / 8 cores**
     - XNU supports 4 KiB on arm64, but the iOS 16 userland assumes 16 KiB.
     - The 16 KiB Gold-only path is the supported one; 4 KiB/8 cores is a separate experiment.
 
-13. **Performance**
+14. **Performance**
     - Software rendering, synchronous eMMC writes and a single boot CPU were the main costs.
     - With `cpus=4` and the eMMC write fix, the lock screen is reachable; the UI is still slow.
 
-14. **Daily driver**
+15. **Daily driver**
     - Not a goal. The port has no data protection, no SEP, permissive AMFI/sandbox and no usable cellular/Wi-Fi/audio.
 
 ## How to help

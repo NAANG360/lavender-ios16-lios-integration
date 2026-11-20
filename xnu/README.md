@@ -21,6 +21,9 @@
 | `0211-lavender-dwc3-core-bringup.patch` | Linux/bergamota DWC3 bring-up: UTMI clock as PIPE clock, core+PHY soft reset, HS quirks (`sweetusbfix` mask, default 7) | On device: no more endpoint timeout, core runs, one bus-reset event; link stays suspended |
 | `0212-lavender-qusb2-utmi-mux.patch` | Release the QUSB2 UTMI test mux (`UTMI_CTRL2 0x40`) ABL leaves set, so the controller drives the D+ pull-up (`sweetusbutmi=0` keeps it) | **On device: enumerates on Windows at high speed** (`VID_1209&PID_0001`, CDC-ECM, no Windows driver) |
 | `0213-lavender-usb-ncm.patch` | CDC-NCM function (default on lavender, `sweetusbncm=0` = ECM) so Windows binds its in-box UsbNcm driver; NTB16 framing; SPEED_CHANGE; bus reset handling | **On device**: Windows 11 UsbNcm adapter up, ping 70/70, live log |
+| `0215-lavender-fb-swap-telemetry.patch` | Log the first `sweetfblog` commits and every change of the enabled layer set; the old `SWEET FB: swap` detail stopped at 16 presents and the counter only every 1000 commits, which made an idle lock screen look frozen | Kernel only; the lock-screen boot with this series is the test |
+| `0216-lavender-rtc-calendar-base.patch` | Calendar base from `sweetrtc=<unix seconds>` when the platform clock answers 0 (the PM660 RTC is not read yet); the shim passes its build time | Kernel only; look for `SWEET RTC: calendar base` and a 2026 date on the lock screen |
+| `0217-lavender-sweetnopb.patch` | `sweetnopb=1` makes the exec of `PosterBoard` fail with EPERM, to isolate the poster crash from the rest of the lock screen | Diagnostic, off by default |
 
 New lavender work takes the next free number from `0200` up.
 

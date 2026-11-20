@@ -52,6 +52,50 @@ The working timeout is **30 s** (`CACHE_FLUSH_TIMEOUT_NS`). A 1 s variant (`CMD6
 
 **What to do:** this is expected. The lock screen is reached with software rendering. GPU acceleration is a separate project (Mesa/freedreno, see topaz). Do not remove the empty service without providing a real accelerator; QuartzCore will wait 30 s per process.
 
+**`SWEET FB: swap` stops after a few lines:** that is the logging, not the compositor. The detailed line is printed only while `sweet_fb_swaps_logged < 16` (one line per presented layer) and the total counter only every 1000 commits, so an idle lock screen (one commit per minute for the clock) produces no lines after boot. Patch `0215` logs the first `sweetfblog` commits (default 2000) with the ring's uptime stamp and every change of the layer set; use it before concluding that the UI froze.
+
+## `CRASH PosterBoard` when the lock screen appears
+
+**Symptom:** after the display-off that enters the lock state, the ring shows `exec PosterBoard` and then:
+
+```
+CRASH PosterBoard[238] sig 5 code 0x600000001 sub 0x211eb0268 slide 0x50738000 mh 0x104868000
+CRASH PosterBoard pc 0x211eb0268 lr 0x211eb0268 sp 0x16b61d0a0 fp 0x16b61d230 far 0x22d73ba40
+CRASH PosterBoard bt 0x211eb6304 0x211e9cc5c 0x211e9c644 0x211f1e204 0x1f3df1318 0x1ec0eb72c ...
+CRASH PosterBoard reason ns 2 code 0x5: (none)
+exec PosterBoard
+```
+
+`sig 5` is SIGTRAP and `code 0x600000001` is `(EXC_BREAKPOINT << 32) | EXC_ARM_BREAKPOINT`: a deliberate `brk`, not a bad pointer, and not Metal (nothing in the path touches `IOAcceleratorES`).
+
+**Symbolication (iPhone X, 20H392):**
+
+```bash
+# 1. the dyld shared cache lives in the Cryptex1,SystemOS DMG (087-86593-047.dmg),
+#    System/Library/Caches/com.apple.dyld/ (main file + .01..42 + .symbols)
+ipsw extract --dyld --dyld-arch arm64 iPhone10,3_16.7.16_20H392_Restore.ipsw
+ipsw dyld info dyld_shared_cache_arm64          # needs the .symbols file
+# 2. unslid = pc - slide, then resolve
+ipsw dyld a2s dyld_shared_cache_arm64 0x1c1778268 -i -d
+ipsw dyld symaddr dyld_shared_cache_arm64 -i /System/Library/PrivateFrameworks/PosterBoard.framework/PosterBoard
+```
+
+On Windows, `7z x` extracts the cache out of the cryptex DMG; `ipsw extract --dyld` needs Linux/macOS (it mounts APFS). The addresses for this build:
+
+| slid | unslid | image + offset | symbol |
+| --- | --- | --- | --- |
+| `0x211eb0268` | `0x1c1778268` | PosterBoard.framework + `0x1d268` | `-[PBFPosterExtensionDataStore _stateLock_setupSwitcherConfigurationForFirstTime] + 2040` |
+| `0x211eb6304` | `0x1c177e304` | PosterBoard.framework + `0x23304` | `_stateLock_updateExtensions:refreshDescriptors:powerLogReason:galleryUpdateOptions:queuedUpOperations:` + 5308 |
+| `0x211e9cc5c` | `0x1c1764c5c` | PosterBoard.framework + `0x9c5c` | `executeUpdate:refreshStrategy:galleryUpdateOptions:powerLogReason:completion:` + 1508 |
+| `0x211e9c644` | `0x1c1764644` | PosterBoard.framework + `0x9644` | `prewarmWithCompletion:` + 144 |
+| `0x211f1e204` | `0x1c17e6204` | PosterBoard.framework + `0x8b204` | `PBFPosterExtensionDataStoreXPCServiceGlue server:prewarmWithCompletion:` + 64 |
+| `0x1f3df1318` | `0x1a36b9318` | PosterBoardServices.framework + `0xe318` | `-[PRSServer prewarmWithCompletion:]` + 164 |
+
+The trap is the function's entry assertion `_stateLock_switcherConfiguration == nil` (the ivar is at offset `0x98`, read from `_OBJC_IVAR_$_PBFPosterExtensionDataStore._stateLock_switcherConfiguration` in the cache): it is already non-nil, so the "first time" path logs an error and executes `brk #0`. The property's getter (`-[PBFPosterExtensionDataStore _stateLock_switcherConfiguration]`) lazily builds and caches an empty configuration (`_stateLock_buildSwitcherConfigurationWithContext:outMutated:`), so any read of it before the first extension update leaves the data store in exactly the state the setup function refuses. The state is persisted in `/var/mobile/Library/PosterBoard` on the HFSX root (not in the root image), and SpringBoard's `prewarm` XPC arrives when the display goes off into the lock screen.
+
+**What to do:** the poster process dies with the lock transition, so start by isolating it: boot with `sweetnopb=1` (patch `0217`), which makes its exec fail with EPERM and logs `SWEET EXEC: refusing PosterBoard`. If the lock screen then stays alive, the gate is PosterBoard's service; options are resetting its data store (delete `/var/mobile/Library/PosterBoard` from a writable root), or the userland workarounds bergamota uses for the same HFS-without-data-protection problem (`refs/bergamota/tools/sweetnet/sweetfp.m`, `sweetpb26.m`: swizzle the poster data-store checks instead of fixing the filesystem).
+
+
 ## Touch does not work
 
 **Cause:** the Novatek NT36672 driver is not implemented. The series has probe/stub patches (`0184`–`0188`) but no finished Novatek protocol, no PM660 LDO11 power-up and no `SweetHIDTouch` integration.
@@ -81,7 +125,8 @@ Do not use EDL/test points unless you know the hardware; the phone is not bricke
 ## Lock screen date is 1969 / colours look red
 
 - The orientation is correct (portrait, upright). The red/orange date, clock and status bar in the lock screen photo are not explained yet: wallpaper tint or framebuffer colour format.
-- The RTC is not set, so iOS shows 1969/December 31. Set the PMIC RTC or let iOS sync time later.
+- The PM660 RTC is not read, so `PEGetUTCTimeOfDay()` answers 0 and iOS starts at 1970-01-01 (the lock screen shows 1969-12-31 16:MM PST plus uptime). Patch `0216` takes `sweetrtc=<unix seconds>` as the calendar base when the platform clock answers 0; the shim build passes its own build time (`EXTRA_CMDLINE="sweetrtc=$(date +%s)"`). Look for `SWEET RTC: calendar base` in the ring and for a 2026 date on the lock screen. The proper fix remains reading the PM660 RTC over SPMI (see `sweet_keys.c` for the arbiter) or letting iOS sync time.
+- The clock also needs the UI to keep committing frames: if it is stuck, check for `CRASH PosterBoard` and for the swap telemetry (`0215`) before blaming the RTC.
 
 ## `launchd` dies with `CS_KILLED`
 
