@@ -4,7 +4,7 @@ A non-commercial research port of **XNU 8796** (Darwin 22 / iOS 16) and the **iP
 
 ![iOS 16 lock screen on the Redmi Note 7](docs/images/lock-screen.jpg)
 
-> **Status: boots to the iOS 16.7.16 lock screen.** This is an experimental bring-up, not a daily driver. Touch, physical buttons, USB, GPU acceleration, Wi-Fi, audio and battery are not working yet. No Apple binaries are distributed in this repository.
+> **Status: boots to the iOS 16.7.16 lock screen.** This is an experimental bring-up, not a daily driver. Touch, GPU acceleration, Wi-Fi, audio and battery are not working yet. Drivers for the physical buttons and USB are written and host-tested (patches `0201`/`0200`) but not yet confirmed on the device. No Apple binaries are distributed in this repository.
 
 The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-69/ios-lavender) (branch `lavender`), itself derived from [`dipa-studio/ios-sweet`](https://github.com/dipa-studio/ios-sweet). This repository documents the lavender-specific bring-up, the patches that made eMMC writes reliable, and the current state of the device.
 
@@ -29,8 +29,8 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 | Area | Status | Notes |
 | --- | --- | --- |
 | Touch | **Missing** | Novatek NT36672 on QUP1 I2C (`0x62`); only probe/stub patches exist |
-| Physical buttons | **Missing** | PM660/PM660L PON keys are not mapped; power/volume/camera do nothing in iOS |
-| USB gadget | **Missing** | No USB device controller driver; `adb`/`fastboot` are unavailable while iOS runs |
+| Physical buttons | **Patched, untested** | Patch `0201`: Power/Volume through the SDM660 SPMI arbiter v3; host-tested, first device boot pending |
+| USB gadget | **Patched, untested** | Patch `0200`: DWC3 CDC-ECM network + live log (`sweetusb=2`/`3`); host-tested, first device boot pending |
 | GPU acceleration | **Missing** | Adreno 512 has no driver; an empty `IOAcceleratorES` keeps QuartzCore from waiting, rendering is software |
 | Camera | **Missing** | Camera button and camera stack are not implemented |
 | Wi-Fi / Bluetooth | **Missing** | No Wi-Fi firmware/driver; `bluetoothd` respawns without hardware |
@@ -39,7 +39,7 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 | Panel orientation | **Wrong** | The lock screen is rotated 90°; the panel/ADT orientation still needs to be fixed |
 | RTC / date | **Wrong** | The clock shows 1969/December 31; the RTC is not set |
 | `preboot` / data volume | **Partial** | `libignition` cannot find the preboot volume; the boot continues unsealed |
-| Second boot / persistence | **Pending** | The first boot completed the data migration; a second-boot check is pending because the buttons are not usable |
+| Second boot / persistence | **Pending** | The first boot completed the data migration; the second-boot check waits for the buttons to be confirmed on the device |
 
 ## Milestones
 
@@ -50,6 +50,7 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 - **2026-11-19 — Four Gold cores.** `cpus=4` brings up all four A73 cores; the A53 Silver cores stay parked because they cannot run 16 KiB pages.
 - **2026-11-19 — First-boot data migration.** A fresh root image needs one long `DataMigration` pass. The image now carries `com.apple.DataMigration.plist` with `LastSystemVersion = 20H392`, so subsequent boots should skip it.
 - **2026-11-19 — iOS 16 lock screen.** The device reached the iOS 16.7.16 lock screen: `Wednesday, December 31`, `4:37`, the camera shortcut and the home indicator are visible. This is the current state.
+- **2026-11-20 — USB and button drivers (host-tested).** `sweet_usb.c` and `sweet_keys.c` were compiled for lavender but never called (their only caller is the UFS path), and they used other SoCs' addresses. Patches `0200`/`0201` port them to SDM660 with addresses from the phone's DTB and start them on lavender. Not yet built in CI or run on the device.
 
 ## Hardware
 
@@ -110,9 +111,9 @@ README.md                 this file
 README.es.md              Spanish summary
 docs/                     hardware, build, boot, achievements, roadmap, legal
   images/lock-screen.jpg  the current milestone
-patches/                  lavender-specific XNU patches (0191, 0192, ...)
+patches/                  lavender-specific XNU patches (0192, 0200, 0201, ...)
 tools/                    log pull/decoder and DataMigration helper
-tests/                    host-test notes for the SDHCI driver
+tests/                    SDHCI test notes; tests/host/ runs the USB/keys drivers on simulated registers
 ```
 
 The full XNU tree, shim sources and base patch series live in the upstream fork; this repository is the lavender port journal and the delta that made it boot.
@@ -132,4 +133,4 @@ This is a research project. XNU is open source under the Apple Public Source Lic
 
 ## Contributing
 
-The most useful next steps are the Novatek touch driver, the PM660/PM660L button mapping, the USB gadget driver and the panel orientation. If you have a lavender unit and can test, open an issue with the boot log and the exact panel/touch variant.
+The most useful next steps are the Novatek touch driver, the first device boot of the `0200`/`0201` USB and button drivers, and the panel orientation. If you have a lavender unit and can test, open an issue with the boot log and the exact panel/touch variant.

@@ -10,14 +10,16 @@ The port boots to the iOS 16.7.16 lock screen. The next work is ordered by what 
    - Verify with the probe patches `0184`–`0188` and a raw I2C scan before writing the driver.
    - Check the panel variant: Synaptics uses `0x20`; this unit is Novatek.
 
-2. **PM660/PM660L buttons**
-   - Map power, volume up/down and camera keys to HID.
+2. **PM660/PM660L buttons**: patch `0201` is written and host-tested; the device boot is next.
+   - Power (PM660 KPDPWR), Volume Down (RESIN) and Volume Up (PM660L GPIO7) are mapped to HID. Lavender has no camera key.
+   - Check the `SWEET KEYS:` lines in `SANTONILOG1` and the `key=N down=…` events on a press.
    - Power long-press should also be handled cleanly; the PMIC hardware reset is the fallback.
    - This unblocks rebooting and testing the second boot.
 
-3. **USB gadget**
-   - Implement the SDM660 USB device controller path (DWC3/CI) for CDC-ECM or RNDIS.
-   - The whyred port uses a `sweetusb=2` live-log path; port the same idea to lavender.
+3. **USB gadget**: patch `0200` is written and host-tested; the device boot is next.
+   - DWC3 device mode with CDC-ECM and the UDP live log: `sweetusb=1` (read-only probe), `2` (gadget), `3` (also power up the GDSC/clocks).
+   - On the first boot, read `SWEET USB: GDSC … (on|off)`. If ABL leaves the PHY regulators off, the next step is the PM660 LDOs plus the DTB `qcom,qusb-phy-init-seq`.
+   - Windows has no CDC-ECM driver: add an NCM function, or use macOS/Linux as the host.
    - This gives `adb`/live logs and makes recovery much easier.
 
 4. **Panel orientation**
@@ -25,7 +27,7 @@ The port boots to the iOS 16.7.16 lock screen. The next work is ordered by what 
    - Verify the touch coordinate transform after rotation.
 
 5. **Second-boot check**
-   - Once buttons work, reboot and confirm the `DataMigration` plist skips the long migration.
+   - Once the `0201` buttons work on the device, reboot and confirm the `DataMigration` plist skips the long migration.
    - If it does not, inspect `datamigrator` and the data volume.
 
 ## P1 — platform completeness

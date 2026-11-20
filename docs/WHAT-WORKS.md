@@ -32,10 +32,10 @@ This is the honest state of the lavender port as of **2026-11-19**. The device b
 | Subsystem | Status | Why / next step |
 | --- | --- | --- |
 | Touch | Missing | Novatek NT36672 on QUP1 I2C (`0x62`); only probe/stub patches. Need Novatek protocol + PM660 LDO11 + GPIO 66/67 |
-| Power button | Missing | PM660/PM660L PON key not mapped to HID; short press does nothing |
-| Volume buttons | Missing | PMIC/GPIO keys not mapped |
-| Camera button | Missing | Key not mapped |
-| USB gadget | Missing | No USB device controller driver; no `adb`/`fastboot` while iOS runs |
+| Power button | Patched, untested | Patch `0201`: PM660 KPDPWR read over the SPMI arbiter v3 and fed to `SWEET HID`. Host-tested; first device boot pending |
+| Volume buttons | Patched, untested | Patch `0201`: Volume Down = PM660 RESIN, Volume Up = PM660L GPIO7. Host-tested; first device boot pending |
+| Camera button | N/A | Lavender has no camera key; the DTB `camera_*` entries are reference-board leftovers |
+| USB gadget | Patched, untested | Patch `0200`: DWC3 device mode, CDC-ECM `ue0` 192.168.7.2, UDP live log (`sweetusb=2`/`3`). Host-tested; unknown whether ABL leaves USB powered on a recovery-partition boot |
 | GPU acceleration | Missing | Adreno 512 has no driver; empty `IOAcceleratorES` keeps QuartzCore from waiting 30 s; rendering is software |
 | Camera | Missing | Camera stack and button are not implemented |
 | Wi-Fi | Missing | No WCN3990 firmware/driver |
@@ -46,7 +46,7 @@ This is the honest state of the lavender port as of **2026-11-19**. The device b
 | RTC | Wrong | Clock shows 1969/December 31; RTC not set |
 | `preboot` | Partial | `libignition: failed to lookup preboot: 25`; boot continues unsealed |
 | Data volume | Partial | `mount: data volume missing, but not required in env: 0`; `/private/var` is on the root HFSX |
-| Second boot | Pending | First boot completed the migration; a second-boot check is pending because the buttons are not usable |
+| Second boot | Pending | First boot completed the migration; the second-boot check waits for the `0201` buttons to be confirmed on the device |
 | Daily driver | No | This is a research bring-up |
 
 ## Boot milestones observed in the log

@@ -60,7 +60,14 @@ The working timeout is **30 s** (`CACHE_FLUSH_TIMEOUT_NS`). A 1 s variant (`CMD6
 
 ## Physical buttons do nothing / USB is not detected
 
-**Cause:** the PM660/PM660L PON keys are not mapped to HID, and the USB device controller driver is missing. While iOS runs there is no `adb`/`fastboot`, even with a data cable.
+**Cause:** on kernels without patches `0200`/`0201`, the keys are not read and the USB device driver never starts. With the patches, check `SANTONILOG1`:
+
+- `SWEET KEYS: unsupported arbiter version=…`: the arbiter is not the expected v3 layout. `… volume-up withheld`: the PM660L GPIO7 is not an enabled input. `read error`: the SPMI reads fail.
+- `SWEET USB: controller unpowered or unclocked` with `sweetusb=1`: ABL left USB off; retry with `sweetusb=3`. `GDSC … TIMEOUT` or `clk … STILL OFF` with `sweetusb=3`: the GCC alone is not enough.
+- No `SWEET KEYS`/`SWEET USB` lines at all: the kernel does not have `0200`.
+- The host sees no network: Windows has no CDC-ECM driver. Use macOS/Linux and set 192.168.7.1/24 on the USB interface.
+
+There is still no `adb`/`fastboot` while iOS runs.
 
 **Recovery:**
 

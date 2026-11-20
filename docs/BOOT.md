@@ -38,6 +38,22 @@ Do **not** use `fastboot reboot recovery`. On this unit it boots Android and MIU
 | `sweetfb_noconsole=1` | Stop drawing the kernel console over the GUI |
 | `sweetfb_stayon=1` | Do not blank the panel during boot |
 | `sweetfb_hz=30` | Software composition refresh target |
+| `sweetusb=N` | Patch `0200`. `0` off; `1` (default) read-only USB probe; `2` CDC-ECM gadget + live log; `3` also powers the USB GDSC/clocks first (experimental) |
+| `sweetusblog=0` | Keep the gadget, disable the UDP live log |
+| `sweetkeys=0` | Patch `0201`: disable the PMIC key poller (default on, read-only) |
+
+## Live log over USB (patch 0200)
+
+With `sweetusb=2` (or `3`) the phone appears as a USB Ethernet device (`1209:0001`). It configures itself as `ue0` 192.168.7.2/24 and every 100 ms streams the console as UDP to 192.168.7.1:5140, starting with the last 64 KiB.
+
+```bash
+# macOS / Linux host (Windows has no CDC-ECM driver)
+sudo ip addr add 192.168.7.1/24 dev <usb-if> && sudo ip link set <usb-if> up   # Linux
+nc -ul 5140            # live console
+ping 192.168.7.2       # link check
+```
+
+After a panic, or before USB comes up, the recovery pull of `SANTONILOG1` is still the only path.
 | `cs_enforcement_disable=1` | Do not kill the unsealed root |
 | `unentitled_ios_sim_launch=1` | Allow the iOS platform binaries to exec |
 | `launchd_unsecure_cache=1` | Skip the AMFI service lookup in the cache loader |
@@ -85,7 +101,7 @@ If the header says `total 0` or `flush #0`, the eMMC write path did not flush. I
 
 ## Recovery when iOS is stuck
 
-The current port has **no working buttons and no USB gadget** while iOS runs. If the device is stuck at the lock screen:
+Until the `0200`/`0201` USB and button drivers are confirmed on the device, assume **no working buttons and no USB** while iOS runs. If the device is stuck at the lock screen:
 
 1. Hold **Power** for 20–30 seconds (PMIC hardware reset).
 2. Try **Power + Volume Down** 20–30 s, then **Power + Volume Up** 20–30 s.
@@ -97,7 +113,7 @@ To get back to TWRP, flash `twrp-3.7.0_9-0-lavender.img` to `recovery` from fast
 ## First boot vs later boots
 
 - **First boot on a fresh root image:** `DataMigration` runs and can take tens of minutes. With `cpus=4` it is faster than the `cpus=1` reference, but still slow. Let it finish.
-- **Later boots:** the image carries `com.apple.DataMigration.plist` with `LastSystemVersion = 20H392`; `DataMigration` should skip. The second-boot check is still pending because the buttons do not work.
+- **Later boots:** the image carries `com.apple.DataMigration.plist` with `LastSystemVersion = 20H392`; `DataMigration` should skip. The second-boot check is still pending; it needs the `0201` buttons confirmed on the device.
 - If the migration never completes, the likely cause is the missing data volume (`mount: data volume missing`) or a migration that cannot record completion. See `docs/TROUBLESHOOTING.md`.
 
 ## Known non-fatal messages

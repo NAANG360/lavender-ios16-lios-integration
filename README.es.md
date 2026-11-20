@@ -4,7 +4,7 @@ Port de investigación, no comercial, de **XNU 8796** (Darwin 22 / iOS 16) y del
 
 ![Lock screen de iOS 16 en el Redmi Note 7](docs/images/lock-screen.jpg)
 
-> **Estado: arranca hasta el lock screen de iOS 16.7.16.** Es un bring-up experimental, no un teléfono de uso diario. Touch, botones físicos, USB, aceleración GPU, Wi-Fi, audio y batería todavía no funcionan. En este repositorio no se distribuyen binarios de Apple.
+> **Estado: arranca hasta el lock screen de iOS 16.7.16.** Es un bring-up experimental, no un teléfono de uso diario. Touch, aceleración GPU, Wi-Fi, audio y batería todavía no funcionan. Los drivers de botones y USB están escritos y probados en host (parches `0201`/`0200`), pero falta confirmarlos en el teléfono. En este repositorio no se distribuyen binarios de Apple.
 
 El port se apoya en [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-69/ios-lavender) (rama `lavender`), derivado de [`dipa-studio/ios-sweet`](https://github.com/dipa-studio/ios-sweet). Acá está la bitácora del bring-up de lavender, los parches que hicieron confiable la escritura eMMC y el estado real del dispositivo.
 
@@ -29,8 +29,8 @@ El port se apoya en [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-6
 | Área | Estado | Notas |
 | --- | --- | --- |
 | Touch | **Falta** | Novatek NT36672 en QUP1 I2C (`0x62`); solo hay probes/stub |
-| Botones físicos | **Falta** | Las teclas PON del PM660/PM660L no están mapeadas; power/volumen/cámara no hacen nada en iOS |
-| USB gadget | **Falta** | No hay driver de controlador USB; `adb`/`fastboot` no existen mientras corre iOS |
+| Botones físicos | **Parcheado, sin probar** | Parche `0201`: Power/Volumen por el árbitro SPMI v3 de SDM660; probado en host, falta el primer boot en el teléfono |
+| USB gadget | **Parcheado, sin probar** | Parche `0200`: red CDC-ECM por DWC3 + log en vivo (`sweetusb=2`/`3`); probado en host, falta el primer boot en el teléfono |
 | GPU | **Falta** | Adreno 512 sin driver; `IOAcceleratorES` vacío evita la espera de QuartzCore, render por software |
 | Cámara | **Falta** | Botón y stack de cámara sin implementar |
 | Wi-Fi / Bluetooth | **Falta** | Sin firmware/driver Wi-Fi; `bluetoothd` respawnea sin hardware |
@@ -39,7 +39,7 @@ El port se apoya en [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-6
 | Orientación del panel | **Mal** | El lock screen se ve rotado 90°; falta ajustar panel/ADT |
 | RTC / fecha | **Mal** | Muestra 1969/31 de diciembre; el RTC no está seteado |
 | `preboot` / data volume | **Parcial** | `libignition` no encuentra el preboot; el boot sigue sin sellar |
-| Segundo boot / persistencia | **Pendiente** | El primer boot completó la migración; falta probar el segundo porque los botones no responden |
+| Segundo boot / persistencia | **Pendiente** | El primer boot completó la migración; el segundo boot espera a que se confirmen los botones en el teléfono |
 
 ## Hitos
 

@@ -13,15 +13,17 @@ This repository does **not** ship Apple binaries, the IPSW, the root image, the 
 
 ## 1. Kernel
 
-Fork [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-69/ios-lavender), branch `lavender`. The workflow `.github/workflows/xnu.yml` builds on `macos-15` (Xcode 15's `iig` matches the xnu-8796 IORPC ABI). A push to `lavender` selects `MACHINE_CONFIG=LAVENDER`; a manual run can pass `machine_config=LAVENDER`.
+The kernel is built from [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-69/ios-lavender) (branch `lavender`, pinned `83356567124670f50a320b8ecc7c04f7ccf8f8e0`) plus this repository's `patches/`. That tree is shared with other devices. **Lavender changes are kept here and are not committed back to `ios-lavender`.** The workflow `.github/workflows/xnu.yml` builds on `macos-15` (Xcode 15's `iig` matches the xnu-8796 IORPC ABI), with `machine_config=LAVENDER`.
+
+> Pending: a workflow in this repository that checks out the pinned base, adds `patches/` and runs the same build. Until it exists, use a throwaway build checkout. The lock-screen kernel (`0192`) was built from a fork; `0200`/`0201` have not been built yet.
 
 ```bash
-gh repo fork aLpHa-Git-69/ios-lavender --clone
+git clone -c core.autocrlf=false -b lavender https://github.com/aLpHa-Git-69/ios-lavender.git
 cd ios-lavender
-# apply the lavender delta patches from this repo's patches/ directory
-cp /path/to/repositorio/patches/*.patch xnu/patches/
-git add xnu/patches && git commit -m "lavender: sdhci write-ready + touch stub"
-git push origin lavender
+git checkout 83356567124670f50a320b8ecc7c04f7ccf8f8e0
+# lavender delta: patches this repo has and the base does not (0192, 0200, 0201, ...)
+cp /path/to/lavender-ios16/patches/0192-*.patch /path/to/lavender-ios16/patches/020*.patch xnu/patches/
+python3 tools/extract_drivers.py && bash tests/run_tests.sh
 
 gh workflow run xnu.yml --ref lavender -f machine_config=LAVENDER
 gh run list --workflow=xnu.yml

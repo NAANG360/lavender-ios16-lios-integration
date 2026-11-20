@@ -28,4 +28,25 @@ The 0192 test asserts that a write whose card never becomes ready returns `ETIME
 
 ## Note
 
-The tests are in the base fork, not duplicated here. This directory documents what they cover and why the 0192 timeout is 30 s. If you change the SDHCI driver, run the full suite before building the kernel.
+The SDHCI tests are in the base fork, not duplicated here. This directory documents what they cover and why the 0192 timeout is 30 s. If you change the SDHCI driver, run the full suite before building the kernel.
+
+# Host tests for 0200 (USB) and 0201 (keys) — `tests/host/`
+
+These tests live in this repository. They compile the **real patched** `bsd/dev/sweet_usb.c` and `bsd/dev/sweet_keys.c` with `-Wall -Wextra -Werror` against simulated SDM660 registers. The only change to the sources is that the ARM barrier asm is replaced by a `MOCK_BARRIER()` hook, which is where the fake hardware reacts. Stub headers stand in for the XNU kernel interfaces (`mock/xnu_mock.h`).
+
+```bash
+# 1. patched sources from the pinned base + this repo's patches/
+bash tests/host/prepare-tree.sh /path/to/ios-lavender /tmp/lavender-tree
+# 2. build and run (clang; e.g. the shim's Docker image)
+bash tests/host/run.sh /tmp/lavender-tree
+```
+
+| Test | Checks |
+| --- | --- |
+| `test_lavender_keys` | Arbiter v3 version gate; a duplicated PPID resolves to the apps-owned APID; observer page `0x9400000 + 0x8000*apid`; the PM660L GPIO7 (PPID `0x2c6`), not the PM660 one; power, volume-up and volume-down produce 6 correct HID events; only EXT_READL commands are written; second init is a no-op; a GPIO configured as output is withheld; a v5 arbiter is rejected |
+| `test_lavender_usb_1` | `sweetusb=1` with everything powered: no GCC/DWC3/QSCRATCH/PHY register changes; the SM7150 addresses are never mapped; the probe runs once |
+| `test_lavender_usb_2` | `sweetusb=3` with the USB off and the core in OTG: GDSC and the 7 branch clocks enabled, `GCTL.PrtCapDir` set to device without touching other bits, VBUS override in QSCRATCH, `RUN_STOP`, event buffer in our DMA page, `ue0` created and configured, event and live-log threads started |
+| `test_lavender_usb_3` | `sweetusb=1` with the USB off: DWC3 and the PHY are never mapped and nothing is written |
+| topaz syntax check | `sweet_keys.c` still compiles without `ARM64_BOARD_CONFIG_LAVENDER` |
+
+The simulated registers check the driver's logic and its addresses. They do not show that the hardware behaves the same way. The first device boot with `sweetusb=1` is the real check (see `docs/BOOT.md`).

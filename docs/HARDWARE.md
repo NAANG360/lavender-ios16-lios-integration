@@ -51,8 +51,16 @@ The 8-core / 4 KiB route is a separate research line (see `docs/ROADMAP.md`); it
 ## Buttons and PMIC
 
 - PM660 / PM660L PMIC.
-- Power/volume/camera keys are PON/GPIO keys. The current kernel registers `SWEET HID` buttons but does not map the lavender keys, so iOS sees no button events.
-- Because USB gadget is also missing, a stuck iOS boot can only be recovered with a PMIC long-press (Power 20–30 s), a key combo at boot, or battery drain.
+- SPMI PMIC arbiter **v3** (DTB `qcom,spmi@800f000`): core `0x0800f000`, chnls `0x08400000`, obsrvr `0x09400000`, intr `0x0a400000`, cnfg `0x0800a000`, ee 0. PM660 is SID 0; PM660L is SID 2/3.
+- Keys (DTB): Power = PM660 PON KPDPWR, Volume Down = PM660 PON RESIN, Volume Up = PM660L GPIO7 (`gpio@c600`, active low). Lavender has no camera key; the DTB `camera_focus`/`camera_snapshot` entries (TLMM 64/113) come from the reference board.
+- Patch `0201` polls these keys read-only and feeds `SWEET HID`. It is host-tested; the device boot is pending. Until it is confirmed, a stuck iOS boot can only be recovered with a PMIC long-press (Power 20–30 s), a key combo at boot, or battery drain.
+
+## USB
+
+- Synopsys DWC3 behind the Qualcomm `dwc-usb3-msm` wrapper (DTB `ssusb@a800000`): core `0x0a800000`, QSCRATCH `0x0a8f8800` (core + `0xf8800`).
+- PHYs: QUSB2 **v1** HS PHY at `0x0c012000` (`major-rev 1`), QMP SS PHY at `0x0c010000`.
+- GCC `0x00100000` (`qcom,gcc-sdm660`); the USB30 GDSC is at `0xf004`. The DT node declares no `iommus`.
+- Patch `0200` drives the controller in device mode (CDC-ECM). On other SoCs ABL leaves USB powered after `fastboot boot`. Lavender boots the shim from `recovery`, and the USB state after that path has not been measured yet.
 
 ## GPU
 
