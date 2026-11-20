@@ -28,7 +28,18 @@ gh run watch <run-id>
 gh run download <run-id> -n xnu-kernel -D xnu/out
 ```
 
-The lock-screen kernel (`0192`) was built by the same workflow from a fork of `ios-lavender`. Since the move, no build of this repository has run, and `0200`/`0201` have not been built yet.
+The lock-screen kernel (`0192`) was built by the same workflow from a fork of `ios-lavender`.
+
+First green build of this repository: run [`44734617963`](https://github.com/pcorezzola/lavender-ios16/actions/runs/44734617963), commit `853fb45`, series `0001`–`0192` + `0200` + `0201` + `0202`. Not yet booted on the device.
+
+| | |
+| --- | --- |
+| File | `kernel.development.lavender` |
+| Size | 17,836,416 bytes |
+| SHA-256 | `a089f246fa3d23e17c1c7cfe35140ccdf9bd6d0bc9314516446e3106f5af6af4` |
+| Checks | Mach-O arm64; no LSE/LDAPR (`llvm-objdump --mattr=+v8.5a`); carries the `0200`/`0201` driver strings |
+
+A shim built from it with the lock-screen command line (the `0192-lite-cpus4` boot args, identical) is 6,713,344 bytes, SHA-256 `92e7d218468301eabdf77a529c6dcc538781112deced4165058cca72805d242d` (not distributed).
 
 Verify the artifact:
 
