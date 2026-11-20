@@ -1,36 +1,36 @@
-# Patches
+# XNU patch series
 
-The base XNU patch series lives in [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-69/ios-lavender) (`xnu/patches/`, branch `lavender`, pinned at `83356567124670f50a320b8ecc7c04f7ccf8f8e0`). That tree is shared with other devices and is used **read-only** here. This directory is the source of truth for the lavender delta. Lavender changes are made here and are not committed to `ios-lavender`.
+`xnu/patches/` holds the **complete** series the lavender kernel is built from. CI hands it to
+[`blacktop/darwin-xnu-build`](https://github.com/blacktop/darwin-xnu-build) on top of Apple's open-source `xnu-8796` (see `docs/BUILD.md`).
 
-## Included here
+- `0001`–`0192` come from [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-69/ios-lavender), commit `bc606b7`, which is the pinned base `83356567…` plus the 30 s `0192`. That is the series that built the lock-screen kernel. `ios-lavender` is shared with other devices, so it is not modified; this repository is now where lavender changes are made.
+- `0019-stage-libpthread.sh`, `0020-stage-bearssl.sh` and `0026-stage-hfs.sh` stage sources the build needs.
+- The series also carries the sweet/topaz/santoni/whyred history (`0003`–`0141`, `0148`, `0176`–`0188`). Lavender builds on those changes, so they stay in place even where the names say another board.
+
+## Lavender patches
 
 | Patch | Purpose | Status |
 | --- | --- | --- |
-| `0191-lavender-touch-stub-common-headers.patch` | Build the shared `santoni_touch_probe()` entry point as an unsupported-board stub and keep the common headers | In the pinned base already; kept for reference |
+| `0145`–`0147` | `LAVENDER` machine config, the framebuffer and the SDCC v5 root | On device |
+| `0189`, `0190` | SDHCI exact PIO + cache state; GIC RWP wait and reset cleanup | On device |
+| `0191-lavender-touch-stub-common-headers.patch` | Shared `santoni_touch_probe()` entry point built as an unsupported-board stub | On device (stub) |
 | `0192-sdhci-wait-card-ready-after-write.patch` | Wait for DAT0 + `TRAN`/`READY_FOR_DATA` (CMD13) after every PIO write; the eMMC write fix | On device: reached the lock screen |
 | `0200-lavender-usb-gadget.patch` | SDM660 USB device (DWC3) with the CDC-ECM network and live log; starts the input and USB drivers on lavender | Host-tested; not yet built or run on the device |
 | `0201-lavender-pmic-keys.patch` | Power / Volume Up / Volume Down through the SDM660 SPMI arbiter v3 | Host-tested; not yet built or run on the device |
 
-`0190-lavender-gic-rwp-and-reset-code-clean.patch` is also part of the lavender series (GIC RWP wait and reset cleanup). It is in the base fork and is not duplicated here.
+New lavender work takes the next free number from `0200` up.
 
-## Applying
-
-Order: the base series, then the patches here that the base does not already carry (`0192`, `0200`, `0201`). Work in a local checkout. Do not push to `ios-lavender`.
+## Changing the series
 
 ```bash
-git clone -b lavender https://github.com/aLpHa-Git-69/ios-lavender.git
-cd ios-lavender
-git checkout 83356567124670f50a320b8ecc7c04f7ccf8f8e0
-cp /path/to/lavender-ios16/patches/0192-*.patch xnu/patches/
-cp /path/to/lavender-ios16/patches/0200-*.patch xnu/patches/
-cp /path/to/lavender-ios16/patches/0201-*.patch xnu/patches/
-python3 tools/extract_drivers.py   # 0200 changes santoni_sdhci.c: refresh drivers/ mirrors
-bash tests/run_tests.sh
+# after adding or editing a patch
+python3 tools/extract_drivers.py      # refresh drivers/ mirrors (generated, never edited by hand)
+bash tests/run_tests.sh               # patch structure, SDHCI/GPT/log/GIC host tests, shipped-code checks
+bash tests/host/prepare-tree.sh /tmp/lavender-tree
+bash tests/host/run.sh /tmp/lavender-tree   # USB/keys drivers on simulated registers
 ```
 
-The base `xnu.yml` workflow applies every `xnu/patches/*.patch` with `git apply` and fails if a critical patch is skipped. See `docs/BUILD.md` for how the kernel is built.
-
-On Windows, clone with `-c core.autocrlf=false`. A CRLF checkout makes `git apply` reject LF patches such as `0192`.
+A push to `main` that touches `xnu/patches/**`, `resources/**` or the workflow builds the kernel in CI. `.gitattributes` keeps patches LF; a CRLF checkout makes `git apply` reject them.
 
 ## 0192: the 30 s vs 1 s timeout
 
@@ -66,8 +66,10 @@ The driver is still read-only: the only MMIO write is the EXT_READL command. If 
 
 ## Tests
 
-- `tests/host/` (this repo) compiles the real patched `sweet_usb.c`/`sweet_keys.c` against simulated registers. See `tests/README.md`.
-- The base tree's `tests/run_tests.sh` covers SDHCI (`0192`), GPT, the log ring, GIC and the patch structure. With `0200`/`0201` added and the mirrors refreshed it passes completely.
+- `tests/run_tests.sh` covers SDHCI (`0192`), GPT, the log ring, GIC, the payload tools, the workflow command lines and the patch structure.
+- `tests/host/` compiles the real patched `sweet_usb.c`/`sweet_keys.c` against simulated registers.
+
+See `tests/README.md`.
 
 ## 0191 note
 

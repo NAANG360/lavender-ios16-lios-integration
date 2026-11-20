@@ -2,14 +2,17 @@
 # Build a lavender shim with the known-good boot arguments.
 #
 # Usage:
-#   ./build-shim.sh /path/to/ios-lavender /path/to/kernel.development.lavender
+#   tools/build-shim.sh /path/to/kernel.development.lavender
 #
-# Requires clang, ld.lld, llvm-objcopy/readelf/nm and python3. The base tree
-# must contain resources/lavender_dtb.bin and the shim/ directory.
+# Requires clang, ld.lld, llvm-objcopy/readelf/nm and python3. Uses this
+# repository's shim/ and resources/lavender_dtb.bin; the product ADT
+# (d22ap.adt from the iPhone X IPSW) is not distributed and must be supplied
+# as shim/build.sh expects.
 set -euo pipefail
 
-BASE="${1:?path to the ios-lavender checkout}"
-KERNEL="${2:?path to kernel.development.lavender}"
+BASE="$(cd "$(dirname "$0")/.." && pwd)"
+KERNEL="${1:?path to kernel.development.lavender}"
+[ -f "$KERNEL" ] && KERNEL="$(cd "$(dirname "$KERNEL")" && pwd)/$(basename "$KERNEL")"
 BOARD="${BOARD:-lavender}"
 ROOTDEV="${ROOTDEV:-emmcroot0}"
 

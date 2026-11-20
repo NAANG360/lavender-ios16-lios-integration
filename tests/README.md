@@ -1,6 +1,6 @@
 # Host tests
 
-The base tree has a host-side test suite that compiles the **real patched SDHCI driver** against a mock MMIO/card backend. It caught a real bug in the 0192 patch before the kernel build: the new helper could not be named `sdhci_wait_card_ready` because the CMD6 helper already has that name. It was renamed `sdhci_wait_write_ready`.
+`tests/run_tests.sh` compiles the **real patched SDHCI driver** against a mock MMIO/card backend. It caught a real bug in the 0192 patch before the kernel build: the new helper could not be named `sdhci_wait_card_ready` because the CMD6 helper already has that name. It was renamed `sdhci_wait_write_ready`.
 
 ## What is covered
 
@@ -12,7 +12,7 @@ The base tree has a host-side test suite that compiles the **real patched SDHCI 
 
 ## Run
 
-In the base tree (`aLpHa-Git-69/ios-lavender`):
+From the repository root:
 
 ```bash
 bash tests/run_tests.sh
@@ -28,15 +28,15 @@ The 0192 test asserts that a write whose card never becomes ready returns `ETIME
 
 ## Note
 
-The SDHCI tests are in the base fork, not duplicated here. This directory documents what they cover and why the 0192 timeout is 30 s. If you change the SDHCI driver, run the full suite before building the kernel.
+The suite came with the series from `ios-lavender` (commit `bc606b7`). The one change is that the HakiOS checksum check is skipped, because those third-party references for another phone are not carried here. If you change a driver, run the full suite before building the kernel; CI runs it first.
 
 # Host tests for 0200 (USB) and 0201 (keys) — `tests/host/`
 
 These tests live in this repository. They compile the **real patched** `bsd/dev/sweet_usb.c` and `bsd/dev/sweet_keys.c` with `-Wall -Wextra -Werror` against simulated SDM660 registers. The only change to the sources is that the ARM barrier asm is replaced by a `MOCK_BARRIER()` hook, which is where the fake hardware reacts. Stub headers stand in for the XNU kernel interfaces (`mock/xnu_mock.h`).
 
 ```bash
-# 1. patched sources from the pinned base + this repo's patches/
-bash tests/host/prepare-tree.sh /path/to/ios-lavender /tmp/lavender-tree
+# 1. patched sources from xnu/patches/
+bash tests/host/prepare-tree.sh /tmp/lavender-tree
 # 2. build and run (clang; e.g. the shim's Docker image)
 bash tests/host/run.sh /tmp/lavender-tree
 ```

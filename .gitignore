@@ -10,6 +10,8 @@ work/
 *.simg
 *.img
 *.bin
+# The board DTB is not a dump: the shim appends it so the ABL accepts the image.
+!resources/lavender_dtb.bin
 
 # Kernel/shim build outputs
 kernel.development.*
@@ -19,6 +21,9 @@ kernel.development.*
 *.unstripped
 build/
 out/
+shim/out/
+xnu/out/
+__pycache__/
 
 # Logs and dumps
 *.log

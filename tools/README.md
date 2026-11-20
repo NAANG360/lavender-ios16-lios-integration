@@ -39,10 +39,24 @@ It writes the plist to `/private/var/mobile/Library/Preferences` (the `/var` sym
 ## Shim
 
 ```bash
-./build-shim.sh /path/to/ios-lavender /path/to/kernel.development.lavender
-# -> /path/to/ios-lavender/shim/out/shim-boot.img
+tools/build-shim.sh /path/to/kernel.development.lavender
+# -> shim/out/shim-boot.img
 ```
 
 The default command line is the lock-screen build: `rd=emmcroot0`, `emmcrw=1 rootrw=1`, the CS flags, `sweetlog=1`, the GUI switches and `cpus=4`. Override `EXTRA_CMDLINE` to test a different configuration.
 
-The base `shim/build.sh` also needs `resources/lavender_dtb.bin` and the product ADT (`d22ap.adt` from the iPhone X IPSW). Those are not distributed here.
+`shim/build.sh` uses `resources/lavender_dtb.bin` (tracked) and the product ADT (`d22ap.adt` from the iPhone X IPSW). The ADT is Apple's and is not distributed here.
+
+## Build and analysis tools (imported from ios-lavender `bc606b7`)
+
+| Script | Purpose |
+| --- | --- |
+| `mkadt.py`, `adt.py` | Build the Apple device tree the kernel boots with (`--board lavender`) from the product ADT |
+| `mkpayload.py`, `payload_cmdline.py`, `check_payload.py` | Pack the kernel + ADT + command line; read back and check an image's command line and board DTB |
+| `mkbootimg.py`, `unpack_bootv2.py`, `extract_appended_dtb.py`, `prune_dtb.py` | Android boot image pack/unpack and DTB extraction/pruning |
+| `mkinit.py`, `santoni-init.S`, `sweet-init.S` | The static Mach-O PID 1 used by RAM-disk test boots |
+| `check_patch.py`, `extract_drivers.py` | Patch structure checks; regenerate the `drivers/` mirrors from `xnu/patches/` |
+| `sweet-root-tweaks.py`, `mkiosroot.sh`, `patch-launchd-plist.py`, `sparsediff.py` | Root image preparation |
+| `sweet-log-pull.sh` | Host side: pull and decode `SANTONILOG1` over adb from recovery |
+| `sweet-usbnet.sh` | Linux host side of the `0200` USB network: wait for the CDC-ECM interface, set 192.168.7.1/24, save the live log |
+| `sweet-crash.py`, `xnu-cc.py`, `kbuild.sh`, `check-exports.py`, `fetch-ci-kernel.sh`, `zip_partial.py`, `remotezip.py` | Crash symbolication, local recompiles from the CI build tree, CI kernel download, partial IPSW fetch |

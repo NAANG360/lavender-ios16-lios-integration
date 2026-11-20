@@ -45,7 +45,7 @@ The 8-core / 4 KiB route is a separate research line (see `docs/ROADMAP.md`); it
 
 - **Novatek NT36672** on QUP1 I2C, address `0x62` on this unit.
 - IRQ GPIO 67, reset GPIO 66, VDDIO from PM660 LDO11.
-- The base tree has probe/stub patches (`0184`–`0188`) but no finished Novatek driver. Touch does not work in iOS.
+- The series has probe/stub patches (`0184`–`0188`) but no finished Novatek driver. Touch does not work in iOS.
 - The alternative panel variant uses Synaptics at `0x20`; do not assume it.
 
 ## Buttons and PMIC

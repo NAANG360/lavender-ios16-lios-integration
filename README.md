@@ -97,8 +97,8 @@ See [`docs/BOOT.md`](docs/BOOT.md) for the full chain and the log-pull procedure
 
 The repository does not contain Apple binaries, the IPSW, the 16 GiB root image or the stock ROM. You need to provide those yourself.
 
-1. **Kernel** — fork `aLpHa-Git-69/ios-lavender`, push to the `lavender` branch and let `.github/workflows/xnu.yml` build `kernel.development.lavender` on `macos-15`.
-2. **Shim** — `BOARD=lavender shim/build.sh <kernel>` inside the base tree; the shim packs the kernel, ADT and boot arguments into an Android boot image.
+1. **Kernel**: push a change to `xnu/patches/` (or run the workflow manually) and `.github/workflows/xnu.yml` builds `kernel.development.lavender` on `macos-15`.
+2. **Shim**: `tools/build-shim.sh <kernel>` packs the kernel, ADT and boot arguments into an Android boot image.
 3. **Root image** — extract `OS.dmg`, `SystemOS.dmg` and `AppOS.dmg` from the iPhone X 16.7.16 IPSW and build the HFSX image with `bergamota/tools/mkiosroot-macos.sh` plus `sweet-root-tweaks.py`.
 4. **Flash** — `fastboot -S 512M flash userdata ios16-root.simg`, then `fastboot flash recovery shim-boot.img`, then Power + Volume Up.
 
@@ -111,12 +111,16 @@ README.md                 this file
 README.es.md              Spanish summary
 docs/                     hardware, build, boot, achievements, roadmap, legal
   images/lock-screen.jpg  the current milestone
-patches/                  lavender-specific XNU patches (0192, 0200, 0201, ...)
-tools/                    log pull/decoder and DataMigration helper
-tests/                    SDHCI test notes; tests/host/ runs the USB/keys drivers on simulated registers
+xnu/patches/              the complete XNU patch series (0001-0192 base, 0200+ lavender)
+shim/                     the boot shim (Android boot image -> XNU)
+resources/lavender_dtb.bin the board DTB the ABL accepts
+drivers/                  generated mirrors of the main drivers (read-only views of the patches)
+tools/                    shim/ADT/payload builders, log pull/decoder, root and DataMigration helpers
+tests/                    patch checks and host tests; tests/host/ runs the USB/keys drivers on simulated registers
+.github/workflows/xnu.yml kernel CI
 ```
 
-The full XNU tree, shim sources and base patch series live in the upstream fork; this repository is the lavender port journal and the delta that made it boot.
+The repository holds everything needed to build the lavender kernel and shim. Apple's XNU source comes from Apple's open-source release at build time. Apple binaries (IPSW, ADT, root image) are never included.
 
 ## Credits
 

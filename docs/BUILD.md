@@ -4,32 +4,31 @@ This repository does **not** ship Apple binaries, the IPSW, the root image, the 
 
 ## Prerequisites
 
-- A GitHub account with `gh` authenticated (the CI builds the kernel).
+- A GitHub account with `gh` authenticated (the CI of this repository builds the kernel).
 - An iPhone X (`D22AP`) iOS 16.7.16 (20H392) IPSW, verified by SHA-256.
 - Windows/Linux with `fastboot` and `adb`.
 - macOS with Xcode Command Line Tools for the root image (`hdiutil`, `python3`), or Linux with `apfs-fuse`/`hfsprogs`.
-- Docker for the shim build (the base tree's `shim/build.sh` needs clang/LLD).
+- Docker (or clang/LLD/LLVM) for the shim build (`shim/build.sh`).
 - A lavender unit with an unlocked bootloader, verified backups and the stock ROM.
 
 ## 1. Kernel
 
-The kernel is built from [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-69/ios-lavender) (branch `lavender`, pinned `83356567124670f50a320b8ecc7c04f7ccf8f8e0`) plus this repository's `patches/`. That tree is shared with other devices. **Lavender changes are kept here and are not committed back to `ios-lavender`.** The workflow `.github/workflows/xnu.yml` builds on `macos-15` (Xcode 15's `iig` matches the xnu-8796 IORPC ABI), with `machine_config=LAVENDER`.
+The full patch series is in `xnu/patches/` (see `xnu/README.md`). `.github/workflows/xnu.yml` builds `kernel.development.lavender` on `macos-15`; Xcode 15's `iig` matches the xnu-8796 IORPC ABI. The workflow:
 
-> Pending: a workflow in this repository that checks out the pinned base, adds `patches/` and runs the same build. Until it exists, use a throwaway build checkout. The lock-screen kernel (`0192`) was built from a fork; `0200`/`0201` have not been built yet.
+1. runs `tests/run_tests.sh` and the `tests/host/` USB/keys tests;
+2. fetches `blacktop/darwin-xnu-build` at a pinned commit and copies `xnu/patches/*` into it;
+3. builds with `MACHINE_CONFIG=LAVENDER` and fails if a critical patch (`014x`–`020x`) was skipped.
+
+A push to `main` that touches `xnu/patches/**`, `resources/**` or the workflow starts it. A manual run can choose the build type.
 
 ```bash
-git clone -c core.autocrlf=false -b lavender https://github.com/aLpHa-Git-69/ios-lavender.git
-cd ios-lavender
-git checkout 83356567124670f50a320b8ecc7c04f7ccf8f8e0
-# lavender delta: patches this repo has and the base does not (0192, 0200, 0201, ...)
-cp /path/to/lavender-ios16/patches/0192-*.patch /path/to/lavender-ios16/patches/020*.patch xnu/patches/
-python3 tools/extract_drivers.py && bash tests/run_tests.sh
-
-gh workflow run xnu.yml --ref lavender -f machine_config=LAVENDER
+gh workflow run xnu.yml --ref main -f machine_config=LAVENDER
 gh run list --workflow=xnu.yml
 gh run watch <run-id>
 gh run download <run-id> -n xnu-kernel -D xnu/out
 ```
+
+The lock-screen kernel (`0192`) was built by the same workflow from a fork of `ios-lavender`. Since the move, no build of this repository has run, and `0200`/`0201` have not been built yet.
 
 Verify the artifact:
 
@@ -54,12 +53,13 @@ The 1 s variant (`CMD6_BUSY_TIMEOUT_NS`, kernel `2a6b5421…`) was rejected: it 
 
 ## 2. Shim
 
-The shim packs the kernel, the product ADT and the boot arguments into an Android boot image. The base tree has `shim/build.sh`; the lavender board uses `resources/lavender_dtb.bin` and `tools/mkadt.py --board lavender`.
+The shim packs the kernel, the product ADT and the boot arguments into an Android boot image. `shim/build.sh` builds it; the lavender board uses `resources/lavender_dtb.bin` and `tools/mkadt.py --board lavender`.
 
 ```bash
-cd ios-lavender
 BOARD=lavender shim/build.sh /path/to/kernel.development.lavender
 # -> shim/out/shim-boot.img
+# or, with the known-good boot arguments:
+tools/build-shim.sh /path/to/kernel.development.lavender
 ```
 
 The current working command line (inside the payload, not the boot.img header):
@@ -107,7 +107,7 @@ The 1 s timeout shim and the `cs_debug=2`/kprintf-spam shim are diagnostic build
 
 ## 3. Root image (HFSX)
 
-The root image is built from the iPhone X IPSW with `bergamota/tools/mkiosroot-macos.sh` and the base tree's `sweet-root-tweaks.py`. It is a 16 GiB HFSX image; `img2simg.py` converts it to the Android sparse image flashed to `userdata`.
+The root image is built from the iPhone X IPSW with `bergamota/tools/mkiosroot-macos.sh` and `tools/sweet-root-tweaks.py`. It is a 16 GiB HFSX image; `img2simg.py` converts it to the Android sparse image flashed to `userdata`.
 
 ```bash
 # macOS, from the bergamota tree

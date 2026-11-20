@@ -54,7 +54,7 @@ The working timeout is **30 s** (`CACHE_FLUSH_TIMEOUT_NS`). A 1 s variant (`CMD6
 
 ## Touch does not work
 
-**Cause:** the Novatek NT36672 driver is not implemented. The base tree has probe/stub patches (`0184`–`0188`) but no finished Novatek protocol, no PM660 LDO11 power-up and no `SweetHIDTouch` integration.
+**Cause:** the Novatek NT36672 driver is not implemented. The series has probe/stub patches (`0184`–`0188`) but no finished Novatek protocol, no PM660 LDO11 power-up and no `SweetHIDTouch` integration.
 
 **Next:** implement the Novatek I2C protocol on QUP1 (`0x62`), GPIO 66 reset / GPIO 67 IRQ, PM660 LDO11, then feed events to `SweetHIDTouch`. Check the panel variant: Synaptics uses `0x20`.
 
