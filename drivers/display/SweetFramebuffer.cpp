@@ -597,6 +597,17 @@ get32(const uint8_t *p, uint32_t off)
 
 static uint32_t sweet_fb_swaps_logged;
 static uint64_t sweet_fb_swap_count;
+/*
+ * 0213: the old log printed only the first 16 presented frames, so "no more
+ * SWEET FB: swap lines" looked like a frozen UI when it only meant "the cap
+ * was reached". Log the first sweetfblog swaps (default 2000) one line each,
+ * then every 256th, and log every change of the layer set, so a stall and an
+ * idle UI are distinguishable in the ring.
+ */
+static uint32_t sweet_fb_swap_log_budget;
+static uint32_t sweet_fb_swap_last_mask;
+static uint32_t sweet_fb_swap_last_ids[4];
+static bool sweet_fb_swap_log_ready;
 
 /* Copy each enabled layer's surface into the panel memory (no scaling). */
 /*
@@ -624,8 +635,30 @@ AppleCLCD::swap(const uint8_t *rec)
 	memcpy(fPendHold, held, sizeof(held));
 	IOLockUnlock(fLock);
 	sweet_hold_set(dropped, false);
-	if ((++sweet_fb_swap_count % 1000) == 0) {
-		IOLog("SWEET FB: %llu swaps\n", sweet_fb_swap_count);
+	if (!sweet_fb_swap_log_ready) {
+		uint32_t logn = 2000;
+		PE_parse_boot_argn("sweetfblog", &logn, sizeof(logn));
+		sweet_fb_swap_log_budget = logn;
+		sweet_fb_swap_log_ready = true;
+	}
+	uint64_t n = ++sweet_fb_swap_count;
+	uint32_t ids[4] = {
+		get32(rec, 0x54), get32(rec, 0x58), get32(rec, 0x5c), get32(rec, 0x60)
+	};
+	bool layersChanged = mask != sweet_fb_swap_last_mask;
+	for (uint32_t i = 0; i < 4; i++) {
+		if (ids[i] != sweet_fb_swap_last_ids[i]) {
+			layersChanged = true;
+		}
+	}
+	if (layersChanged) {
+		IOLog("SWEET FB: layer set mask 0x%x ids %u %u %u %u (swap %llu)\n",
+		    mask, ids[0], ids[1], ids[2], ids[3], n);
+		sweet_fb_swap_last_mask = mask;
+		memcpy(sweet_fb_swap_last_ids, ids, sizeof(ids));
+	}
+	if (n <= sweet_fb_swap_log_budget || (n % 256) == 0) {
+		IOLog("SWEET FB: swap %llu\n", n);
 	}
 }
 
