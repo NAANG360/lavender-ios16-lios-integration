@@ -26,12 +26,12 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 | Panel orientation | **Works** | The lock screen is portrait and upright, filling the 1080×2340 panel (`docs/images/lock-screen.jpg`) |
 | Physical buttons | **Works** | Patch `0201`: Power/Volume Up/Volume Down through the SDM660 SPMI arbiter v3, delivered to iOS HID |
 | USB network | **Works** | Patches `0200`, `0210`–`0213`: DWC3 + QUSB2 bring-up, CDC-NCM (Windows UsbNcm, macOS, Linux), `ping 192.168.7.2`, live kernel log on UDP 5140 (`sweetusb=2`; `tools/usbnet-windows.ps1`) |
+| Touch | **Works (slow)** | Novatek NT36672A on QUP1 I2C (bit-banged): patches `0193`–`0208`, `0230`. Taps and swipes reach iOS: setup, home screen and app icons respond. Each read still takes ~14 ms (12 bytes) to ~65 ms (full frame): see ROADMAP |
 
 ## What does not work yet
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Touch | **In progress** | Novatek on QUP1 I2C (`0x62`): patches `0193`–`0199`, `0203` (probe, NT36772 firmware boot, xdata, HID thread); not usable yet |
 | GPU acceleration | **Missing** | Adreno 512 has no driver; an empty `IOAcceleratorES` keeps QuartzCore from waiting, rendering is software |
 | Camera | **Missing** | Camera button and camera stack are not implemented |
 | Wi-Fi / Bluetooth | **Missing** | No Wi-Fi firmware/driver; `bluetoothd` respawns without hardware |
@@ -52,6 +52,7 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 - **2026-11-19 — First-boot data migration.** A fresh root image needs one long `DataMigration` pass. The image now carries `com.apple.DataMigration.plist` with `LastSystemVersion = 20H392`, so subsequent boots should skip it.
 - **2026-11-19 — iOS 16 lock screen.** The device reached the iOS 16.7.16 lock screen: `Wednesday, December 31`, `4:37`, the camera shortcut and the home indicator are visible. This is the current state.
 - **2026-11-20 — USB and button drivers (host-tested).** `sweet_usb.c` and `sweet_keys.c` were compiled for lavender but never called (their only caller is the UFS path), and they used other SoCs' addresses. Patches `0200`/`0201` port them to SDM660 with addresses from the phone's DTB and start them on lavender. On the device the keys worked at once; USB needed three more fixes found with ~1-minute `sweetusbhold` boots: `0210` powers the QUSB2 PHY ABL leaves off, `0211` brings the DWC3 core up as Linux does, `0212` releases the PHY's UTMI test mux.
+- **2026-11-20 — Touch works: iOS home screen reached by touch.** The Novatek driver had been reading the controller in slow motion: on this port `delay()` never spins (the CPUs are registered with `powergate_latency` 0, so XNU blocks for every delay), and the bit-banged I2C does ~1800 delays per frame. `0230` times the bit-bang with a busy-wait: 0 I2C errors, frames in ~14 ms instead of seconds, and the setup screens, home screen and app icons respond to taps.
 - **2026-11-20 — 30 s off every boot.** Every boot stopped for exactly 30.000 s while XNU waited for an `IORTC` resource nothing publishes; that wait is also why the calendar started at 1970. `0220` skips it (as XNU does for BCM2837) and reads the PM660 RTC: eMMC and USB now come up at ~16 s instead of ~46 s.
 - **2026-11-20 — USB network on Windows.** `0213` turns the gadget into CDC-NCM: Windows 11 binds its in-box UsbNcm driver, `ping 192.168.7.2` answers (70/70, 1400-byte frames) and the kernel console streams live to the PC. No more TWRP round-trips to read a log.
 
@@ -140,4 +141,4 @@ This is a research project. XNU is open source under the Apple Public Source Lic
 
 ## Contributing
 
-The most useful next steps are the Novatek touch driver and the boot time (~18 min to the lock screen). If you have a lavender unit and can test, open an issue with the boot log and the exact panel/touch variant.
+The most useful next steps are faster touch (hardware QUP I2C instead of bit-bang), the boot time (~18 min to the lock screen) and the system-wide `delay()` issue (CPU `powergate_latency` 0). If you have a lavender unit and can test, open an issue with the boot log and the exact panel/touch variant.

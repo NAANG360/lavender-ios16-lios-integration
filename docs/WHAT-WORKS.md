@@ -34,7 +34,7 @@ This is the honest state of the lavender port as of **2026-11-19**. The device b
 
 | Subsystem | Status | Why / next step |
 | --- | --- | --- |
-| Touch | Missing | Novatek NT36672 on QUP1 I2C (`0x62`); only probe/stub patches. Need Novatek protocol + PM660 LDO11 + GPIO 66/67 |
+| Touch | Works (slow) | Novatek NT36672A, bit-banged I2C (patches `0193`–`0208`, `0230`): taps and swipes reach iOS; ~14 ms per idle read, up to ~65 ms per full frame |
 | Camera button | N/A | Lavender has no camera key; the DTB `camera_*` entries are reference-board leftovers |
 | GPU acceleration | Missing | Adreno 512 has no driver; empty `IOAcceleratorES` keeps QuartzCore from waiting 30 s; rendering is software |
 | PosterBoard / lock-screen poster | Intermittent crash | In some boots `PosterBoard` traps in `-[PBFPosterExtensionDataStore _stateLock_setupSwitcherConfigurationForFirstTime]` (symbolicated, see TROUBLESHOOTING); a 47-minute boot with touches (kernel `0206`, live log) never crashed it, so the lock screen itself is not frozen by it. `sweetnopb=1` (patch `0217`) isolates the process |
