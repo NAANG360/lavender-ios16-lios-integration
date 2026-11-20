@@ -34,6 +34,18 @@
 #include <setjmp.h>
 #include "mock_mmio.h"
 
+/*
+ * 0221: the touch driver is not part of this host test; the USB driver only
+ * needs the symbol to link. The kernel build uses the real definition from
+ * bsd/dev/santoni_touch.c.
+ */
+void
+santoni_touch_remote(const uint8_t *frame, uint32_t len)
+{
+	(void)frame;
+	(void)len;
+}
+
 void mock_barrier(void);
 #define MOCK_BARRIER(...) mock_barrier()
 
