@@ -37,7 +37,7 @@ This is the honest state of the lavender port as of **2026-11-19**. The device b
 | Touch | Missing | Novatek NT36672 on QUP1 I2C (`0x62`); only probe/stub patches. Need Novatek protocol + PM660 LDO11 + GPIO 66/67 |
 | Camera button | N/A | Lavender has no camera key; the DTB `camera_*` entries are reference-board leftovers |
 | GPU acceleration | Missing | Adreno 512 has no driver; empty `IOAcceleratorES` keeps QuartzCore from waiting 30 s; rendering is software |
-| PosterBoard / lock-screen poster | Crash | `PosterBoard` traps in `-[PBFPosterExtensionDataStore _stateLock_setupSwitcherConfigurationForFirstTime]` when SpringBoard prewarms it (symbolicated, see TROUBLESHOOTING); `sweetnopb=1` (patch `0217`) keeps it from running for the isolation test |
+| PosterBoard / lock-screen poster | Intermittent crash | In some boots `PosterBoard` traps in `-[PBFPosterExtensionDataStore _stateLock_setupSwitcherConfigurationForFirstTime]` (symbolicated, see TROUBLESHOOTING); a 47-minute boot with touches (kernel `0206`, live log) never crashed it, so the lock screen itself is not frozen by it. `sweetnopb=1` (patch `0217`) isolates the process |
 | Camera | Missing | Camera stack and button are not implemented |
 | Wi-Fi | Missing | No WCN3990 firmware/driver |
 | Bluetooth | Missing | `bluetoothd` respawns without hardware |

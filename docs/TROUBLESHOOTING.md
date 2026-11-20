@@ -56,7 +56,7 @@ The working timeout is **30 s** (`CACHE_FLUSH_TIMEOUT_NS`). A 1 s variant (`CMD6
 
 ## `CRASH PosterBoard` when the lock screen appears
 
-**Symptom:** after the display-off that enters the lock state, the ring shows `exec PosterBoard` and then:
+**Symptom:** in some boots, right after the display-off that enters the lock state, the ring shows `exec PosterBoard` and then:
 
 ```
 CRASH PosterBoard[238] sig 5 code 0x600000001 sub 0x211eb0268 slide 0x50738000 mh 0x104868000
@@ -92,6 +92,8 @@ On Windows, `7z x` extracts the cache out of the cryptex DMG; `ipsw extract --dy
 | `0x1f3df1318` | `0x1a36b9318` | PosterBoardServices.framework + `0xe318` | `-[PRSServer prewarmWithCompletion:]` + 164 |
 
 The trap is the function's entry assertion `_stateLock_switcherConfiguration == nil` (the ivar is at offset `0x98`, read from `_OBJC_IVAR_$_PBFPosterExtensionDataStore._stateLock_switcherConfiguration` in the cache): it is already non-nil, so the "first time" path logs an error and executes `brk #0`. The property's getter (`-[PBFPosterExtensionDataStore _stateLock_switcherConfiguration]`) lazily builds and caches an empty configuration (`_stateLock_buildSwitcherConfigurationWithContext:outMutated:`), so any read of it before the first extension update leaves the data store in exactly the state the setup function refuses. The state is persisted in `/var/mobile/Library/PosterBoard` on the HFSX root (not in the root image), and SpringBoard's `prewarm` XPC arrives when the display goes off into the lock screen.
+
+**It is state-dependent:** `sweetlog-0203-touch-hid` crashed about ten minutes after `exec PosterBoard`, while the live log of a 47-minute boot with manual touches (kernel `0206`, 2026-11-20) never printed `CRASH PosterBoard` and SpringBoard kept answering AppleKeyStore and selector calls. The failing state lives in PosterBoard's data store on the HFSX root, so it depends on what earlier boots wrote; do not treat "no SWEET FB: swap lines" or one crash as proof that the renderer froze.
 
 **What to do:** the poster process dies with the lock transition, so start by isolating it: boot with `sweetnopb=1` (patch `0217`), which makes its exec fail with EPERM and logs `SWEET EXEC: refusing PosterBoard`. If the lock screen then stays alive, the gate is PosterBoard's service; options are resetting its data store (delete `/var/mobile/Library/PosterBoard` from a writable root), or the userland workarounds bergamota uses for the same HFS-without-data-protection problem (`refs/bergamota/tools/sweetnet/sweetfp.m`, `sweetpb26.m`: swizzle the poster data-store checks instead of fixing the filesystem).
 
