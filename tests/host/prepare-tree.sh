@@ -19,7 +19,8 @@ mkdir -p "$out"
 series="$(mktemp)"
 trap 'rm -f "$series"' EXIT
 for p in "$repo"/xnu/patches/*.patch; do
-	tr -d '\r' < "$p" >> "$series"
+	# C locale: BSD tr (macOS) rejects patch bytes that are not valid UTF-8.
+	LC_ALL=C tr -d '\r' < "$p" >> "$series"
 done
 if [ ! -d "$out/.git" ]; then
 	git -C "$out" init -q

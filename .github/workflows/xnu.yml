@@ -65,7 +65,24 @@ env:
   CCACHE_WRAP: ${{ github.workspace }}/ccache-bin
 
 jobs:
+  # lavender-ios16: the USB/keys drivers (0200/0201) on simulated registers.
+  # Linux only: the mocks stand in for XNU headers and are built against
+  # glibc, not the macOS SDK. Cheap, so it gates the macOS build.
+  host-tests:
+    name: host tests (USB/keys)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: USB/keys drivers on simulated registers
+        run: |
+          set -o pipefail
+          clang --version | head -1
+          bash tests/host/prepare-tree.sh "$RUNNER_TEMP/lavender-tree"
+          OUT_DIR="$RUNNER_TEMP/host-out" bash tests/host/run.sh "$RUNNER_TEMP/lavender-tree"
+
   build:
+    needs: host-tests
     # macos-14 still ships Xcode 15.x: its iig matches the xnu-8796 IORPC ABI
     # (Xcode 16's iig emits IORPC.kernelContent, which this xnu lacks)
     runs-on: macos-15
@@ -83,8 +100,7 @@ jobs:
           # token, but the annotations of a failed check are public, so a
           # macOS-only failure can still be read back without one.
           set -o pipefail
-          if ! { bash tests/run_tests.sh && bash tests/host/prepare-tree.sh /tmp/lavender-tree &&
-                 OUT_DIR=/tmp/host-out bash tests/host/run.sh /tmp/lavender-tree; } 2>&1 | tee /tmp/host-tests.log; then
+          if ! bash tests/run_tests.sh 2>&1 | tee /tmp/host-tests.log; then
             tail -25 /tmp/host-tests.log | while IFS= read -r line; do
               printf '::error::%s\n' "${line//'%'/'%25'}"
             done
