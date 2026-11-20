@@ -43,6 +43,11 @@ on:
       - "xnu/patches/**"
       - "resources/**"
       - ".github/workflows/xnu.yml"
+      # the host tests and patch checks gate the build: a change there must run
+      - "tests/**"
+      - "drivers/**"
+      - "shim/**"
+      - "tools/**"
 
 
 concurrency:
