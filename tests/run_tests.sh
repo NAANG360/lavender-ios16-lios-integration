@@ -23,7 +23,7 @@ P143="xnu/patches/0143-santoni-persistent-console-log.patch"
 P144="xnu/patches/0144-santoni-4k-unsigned-dyld-cache.patch"
 
 echo "== host unit tests (-Wall -Wextra) =="
-for t in test_sdhci_mock test_gpt_parser test_log_ring; do
+for t in test_sdhci_mock test_gpt_parser test_log_ring test_log_stamp; do
 	"$CC" -O2 -Wall -Wextra -I. "tests/$t.c" -o "$OUT/$t"
 	case "$OUT" in
 		/*) "$OUT/$t" ;;
