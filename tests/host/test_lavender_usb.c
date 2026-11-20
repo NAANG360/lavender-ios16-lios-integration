@@ -22,6 +22,10 @@
  *   model); sweetusbhold=0 returns at once.
  * SCENARIOS 4/5 also start from UTMI_CTRL2 = 0x40 (TEST_MUX_SEL, every lavender
  *   log) and expect 0212 to release it (0x00).
+ * SCENARIO 7 (0213, CDC-NCM, as Windows UsbNcm drives it): descriptors,
+ *   NTB parameters/format, configuration, SPEED_CHANGE then
+ *   NETWORK_CONNECTION, an OUT NTB with two datagrams, a malformed one, IN
+ *   NTBs (plus the 512-byte pad), a bus reset and reconfiguration.
  * SCENARIO 6 (0211 off, sweetusbfix=0): reproduces the device log of boot
  *   usbtest-0210: PHY locked, "ep0 cmd 0x1 timeout", no RUN_STOP.
  * SCENARIOS 4/2 also check the 0211 bring-up: UTMI clock as PIPE clock,
@@ -183,7 +187,7 @@ errno_t ifnet_set_mtu(ifnet_t ifp, int mtu) { (void)ifp; (void)mtu; return 0; }
 errno_t ifnet_set_baudrate(ifnet_t ifp, uint64_t b) { (void)ifp; (void)b; return 0; }
 errno_t ifnet_set_flags(ifnet_t ifp, uint32_t f, uint32_t m) { (void)ifp; (void)f; (void)m; return 0; }
 errno_t ifnet_set_lladdr(ifnet_t ifp, const void *ll, size_t len) { (void)ifp; (void)ll; (void)len; return 0; }
-errno_t ifnet_input(ifnet_t ifp, mbuf_t m, const struct ifnet_stat_increment_param *s) { (void)ifp; (void)m; (void)s; return 0; }
+errno_t ifnet_input(ifnet_t ifp, mbuf_t m, const struct ifnet_stat_increment_param *s);
 errno_t ifnet_stat_increment_out(ifnet_t ifp, uint32_t p, uint32_t b, uint32_t e) { (void)ifp; (void)p; (void)b; (void)e; return 0; }
 errno_t proto_plumb(int pf, ifnet_t ifp) { (void)pf; (void)ifp; return 0; }
 static int the_socket;
@@ -191,21 +195,28 @@ errno_t sock_socket(int d, int t, int p, void *cb, void *c, socket_t *so) { (voi
 errno_t sock_ioctl(socket_t so, unsigned long req, void *arg) { (void)so; (void)arg; if (req == SIOCAIFADDR) { ifaddr_set++; } return 0; }
 errno_t sock_send(socket_t so, const struct msghdr *msg, int flags, size_t *sent) { (void)so; (void)msg; (void)flags; *sent = 0; return 0; }
 void sock_close(socket_t so) { (void)so; }
-errno_t mbuf_gethdr(int how, int type, mbuf_t *m) { (void)how; (void)type; *m = NULL; return 1; }
-errno_t mbuf_mclget(int how, int type, mbuf_t *m) { (void)how; (void)type; (void)m; return 1; }
-int mbuf_flags(mbuf_t m) { (void)m; return 0; }
-size_t mbuf_maxlen(mbuf_t m) { (void)m; return 0; }
-void *mbuf_data(mbuf_t m) { (void)m; return NULL; }
-size_t mbuf_len(mbuf_t m) { (void)m; return 0; }
-errno_t mbuf_setlen(mbuf_t m, size_t len) { (void)m; (void)len; return 0; }
-errno_t mbuf_pkthdr_setlen(mbuf_t m, size_t len) { (void)m; (void)len; return 0; }
-size_t mbuf_pkthdr_len(mbuf_t m) { (void)m; return 0; }
+/* 0213: working mbufs: one 2 KiB cluster each, a data offset, a packet length */
+struct mock_mbuf { uint8_t buf[2048]; size_t off, len, pktlen; };
+static unsigned mbufs_live;
+errno_t mbuf_gethdr(int how, int type, mbuf_t *m) { (void)how; (void)type; *m = calloc(1, sizeof(struct mock_mbuf)); mbufs_live++; return 0; }
+errno_t mbuf_mclget(int how, int type, mbuf_t *m) { (void)how; (void)type; (void)m; return 0; }
+int mbuf_flags(mbuf_t m) { (void)m; return MBUF_EXT; }
+size_t mbuf_maxlen(mbuf_t m) { (void)m; return 2048; }
+void *mbuf_data(mbuf_t m) { return m->buf + m->off; }
+size_t mbuf_len(mbuf_t m) { return m->len; }
+errno_t mbuf_setlen(mbuf_t m, size_t len) { m->len = len; return 0; }
+errno_t mbuf_pkthdr_setlen(mbuf_t m, size_t len) { m->pktlen = len; return 0; }
+size_t mbuf_pkthdr_len(mbuf_t m) { return m->pktlen; }
 errno_t mbuf_pkthdr_setrcvif(mbuf_t m, ifnet_t ifp) { (void)m; (void)ifp; return 0; }
 errno_t mbuf_pkthdr_setheader(mbuf_t m, void *h) { (void)m; (void)h; return 0; }
-void mbuf_pkthdr_adjustlen(mbuf_t m, int a) { (void)m; (void)a; }
-errno_t mbuf_setdata(mbuf_t m, void *d, size_t len) { (void)m; (void)d; (void)len; return 0; }
-errno_t mbuf_copydata(mbuf_t m, size_t off, size_t len, void *out) { (void)m; (void)off; (void)len; (void)out; return 0; }
-void mbuf_freem(mbuf_t m) { (void)m; }
+void mbuf_pkthdr_adjustlen(mbuf_t m, int a) { m->pktlen += a; }
+errno_t mbuf_setdata(mbuf_t m, void *d, size_t len) { m->off = (size_t)((uint8_t *)d - m->buf); m->len = len; return 0; }
+errno_t mbuf_copydata(mbuf_t m, size_t off, size_t len, void *out) { memcpy(out, m->buf + m->off + off, len); return 0; }
+void mbuf_freem(mbuf_t m) { if (m) { free(m); mbufs_live--; } }
+/* received frames: full length (header + payload) and the first payload byte */
+static unsigned rx_count;
+static size_t rx_len[8];
+static uint8_t rx_first[8];
 
 /* The SYSTEM console ring readers added to santoni_sdhci.c by 0200. */
 static unsigned santoni_reader_calls;
@@ -215,6 +226,39 @@ uint32_t santoni_log_copy(uint64_t *pos, char *out, uint32_t max) { (void)pos; (
 uint64_t santoni_log_position(void) { santoni_reader_calls++; return 0; }
 
 #include USB_SOURCE
+
+errno_t
+ifnet_input(ifnet_t ifp, mbuf_t m, const struct ifnet_stat_increment_param *s)
+{
+	(void)ifp; (void)s;
+	if (rx_count < 8) {
+		rx_len[rx_count] = m->pktlen + ETHER_HDR_LEN;
+		rx_first[rx_count] = m->buf[m->off];
+	}
+	rx_count++;
+	mbuf_freem(m);
+	return 0;
+}
+
+/* 0213: drive ep0 like a host: a SETUP packet, then the SETUP XferComplete event */
+static uint32_t
+host_setup(uint8_t type, uint8_t req, uint16_t value, uint16_t index, uint16_t length)
+{
+	uint8_t *st = (uint8_t *)(ud.dma + UD_SETUP);
+	st[0] = type; st[1] = req;
+	st[2] = (uint8_t)value; st[3] = (uint8_t)(value >> 8);
+	st[4] = (uint8_t)index; st[5] = (uint8_t)(index >> 8);
+	st[6] = (uint8_t)length; st[7] = (uint8_t)(length >> 8);
+	ud.state = EP0_SETUP;
+	ud_event((0u << 1) | (1u << 6));                /* ep0 OUT XferComplete */
+	volatile uint32_t *t = (volatile uint32_t *)(ud.dma + UD_TRB_IN);
+	return t[2];                                    /* IN data stage length */
+}
+
+static void
+put16(uint8_t *p, uint16_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
+static void
+put32(uint8_t *p, uint32_t v) { put16(p, (uint16_t)v); put16(p + 2, (uint16_t)(v >> 16)); }
 
 static uint8_t *gcc_mem, *dwc_mem, *qs_mem, *phy_mem;
 
@@ -291,6 +335,83 @@ main(void)
 	CHECK(memcmp(snap_gcc, gcc_mem, 0x94000) == 0, "sweetusb=1 wrote a GCC register");
 	CHECK(mock_find(T_DWC3_PA, 4)->maps == 0, "unclocked DWC3 was mapped");
 	CHECK(mock_find(T_QUSB2_PA, 4)->maps == 0, "PHY mapped with the controller off");
+#elif SCENARIO == 7
+	/* 0213: CDC-NCM function (default on LAVENDER), driven like Windows UsbNcm */
+	setup(true, 0x00102000u);
+	PHY(0x38) = 0x10101010u;
+	PHY(0xb4) = 0x23232323u;
+	mock_bootarg_sweetusb = 2;
+	sweet_usb_probe();
+	CHECK(ud.ncm, "NCM not selected by default on LAVENDER");
+	CHECK(DWC(0xc704) & (1u << 31), "RUN_STOP not set");
+	uint8_t *data = (uint8_t *)(ud.dma + UD_DATA);
+	uint32_t n = host_setup(0x80, 6, 0x0200, 0, 255);
+	CHECK(n == 86 && data[2] == 86 && data[4] == 2, "config descriptor len %u", n);
+	CHECK(data[9 + 5] == 0x02 && data[9 + 6] == 0x0d, "comm interface not CDC NCM (%02x/%02x)", data[14], data[15]);
+	CHECK(data[41] == 6 && data[42] == 0x24 && data[43] == 0x1a, "NCM functional descriptor missing");
+	CHECK(data[54 + 5] == 0x0a && data[54 + 7] == 0x01 && data[63 + 7] == 0x01, "data interface protocol not NTB");
+	n = host_setup(0x80, 6, 0x0302, 0x0409, 255);
+	CHECK(n == 2 + 2 * 19 && data[2] == 'S', "product string len %u", n);
+	n = host_setup(0xa1, 0x80, 0, 0, 28);
+	CHECK(n == 28 && data[0] == 28 && data[2] == 1 && data[4] == 0x00 && data[5] == 0x08 && data[8] == 4 &&
+	    data[16] == 0x00 && data[17] == 0x08, "GET_NTB_PARAMETERS");
+	host_setup(0x21, 0x84, 0, 0, 0);
+	CHECK(ud.state == EP0_WAIT_STATUS2, "SET_NTB_FORMAT(16) not accepted");
+	host_setup(0x21, 0x84, 1, 0, 0);
+	CHECK(ud.state == EP0_SETUP, "SET_NTB_FORMAT(32) not stalled");
+	host_setup(0x00, 9, 1, 0, 0);
+	CHECK(ud.configured, "SET_CONFIGURATION(1) did not configure");
+	host_setup(0x01, 11, 1, 1, 0);
+	uint8_t *note = (uint8_t *)(ud.dma + UD_NOTIFY);
+	CHECK(ud.notify_stage == 1 && note[1] == 0x2a, "first notification 0x%02x, want SPEED_CHANGE", note[1]);
+	ud_event((EP_INT << 1) | (1u << 6));
+	CHECK(ud.notify_stage == 2 && note[1] == 0x00 && note[2] == 1, "second notification not NETWORK_CONNECTION");
+
+	/* OUT NTB16 with two datagrams (64 and 90 bytes) */
+	uint8_t *b = (uint8_t *)(ud.dma + UD_RX);
+	memset(b, 0, 0x800);
+	put32(b, 0x484d434eu); put16(b + 4, 12); put16(b + 6, 7); put16(b + 8, 32 + 64 + 90); put16(b + 10, 12);
+	put32(b + 12, 0x304d434eu); put16(b + 16, 20); put16(b + 18, 0);
+	put16(b + 20, 32); put16(b + 22, 64); put16(b + 24, 96); put16(b + 26, 90); put16(b + 28, 0); put16(b + 30, 0);
+	b[32 + 14] = 0x45; b[96 + 14] = 0x46;
+	volatile uint32_t *rt = (volatile uint32_t *)(ud.dma + UD_TRB_RX);
+	rt[2] = 0x800 - (32 + 64 + 90);
+	ud_event((EP_RX << 1) | (1u << 6));
+	CHECK(rx_count == 2 && rx_len[0] == 64 && rx_len[1] == 90 && rx_first[0] == 0x45 && rx_first[1] == 0x46,
+	    "NTB rx: %u frames (%zu, %zu)", rx_count, rx_len[0], rx_len[1]);
+	CHECK(ud.xfer_active[EP_RX], "RX not re-armed");
+	/* malformed: datagram past the block */
+	put16(b + 22, 1000);
+	rt[2] = 0x800 - (32 + 64 + 90);
+	ud_event((EP_RX << 1) | (1u << 6));
+	CHECK(ud.ntb_bad == 1 && rx_count == 2, "malformed NTB accepted (bad %u, rx %u)", ud.ntb_bad, rx_count);
+
+	/* IN: one 100-byte frame, then a 484-byte one (28 + 484 = 512 -> padded) */
+	mbuf_t m = NULL;
+	mbuf_gethdr(0, 0, &m);
+	memset(m->buf, 0xab, 100); m->len = m->pktlen = 100;
+	ud_if_output(ud.ifp, m);
+	uint8_t *tx = (uint8_t *)(ud.dma + UD_TX);
+	volatile uint32_t *tt = (volatile uint32_t *)(ud.dma + UD_TRB_TX);
+	CHECK(ud_rd32(tx) == 0x484d434eu && ud_rd16(tx + 4) == 12 && ud_rd16(tx + 8) == 128 && ud_rd16(tx + 10) == 12,
+	    "NTH16 %08x len %u", ud_rd32(tx), ud_rd16(tx + 8));
+	CHECK(ud_rd32(tx + 12) == 0x304d434eu && ud_rd16(tx + 16) == 16 && ud_rd16(tx + 20) == 28 &&
+	    ud_rd16(tx + 22) == 100 && ud_rd16(tx + 24) == 0 && tx[28] == 0xab, "NDP16");
+	CHECK((tt[2] & 0xffffff) == 128, "TX TRB length %u", tt[2] & 0xffffff);
+	ud_event((EP_TX << 1) | (1u << 6));
+	mbuf_gethdr(0, 0, &m);
+	m->len = m->pktlen = 484;
+	ud_if_output(ud.ifp, m);
+	CHECK(ud_rd16(tx + 8) == 513 && (tt[2] & 0xffffff) == 513 && ud_rd16(tx + 6) == 1, "512-byte NTB not padded");
+	ud_event((EP_TX << 1) | (1u << 6));
+
+	/* host reset: the function must come back unconfigured, ep0 in SETUP */
+	ud_event(0x00000101);
+	CHECK(!ud.configured && ud.resets >= 1 && (DWC(0xc720) & ~3u) == 0 && ud.state == EP0_SETUP,
+	    "bus reset: configured %d resets %u DALEPENA 0x%x state %d", ud.configured, ud.resets, DWC(0xc720), ud.state);
+	host_setup(0x00, 9, 1, 0, 0);
+	CHECK(ud.configured, "not reconfigured after a bus reset");
+	CHECK(mbufs_live == 0, "%u mbufs leaked", mbufs_live);
 #elif SCENARIO == 6
 	setup(true, 0x00102000u);
 	PHY(0x38) = 0x10101010u;
