@@ -39,7 +39,7 @@ The 8-core / 4 KiB route is a separate research line (see `docs/ROADMAP.md`); it
 - 1080×2340 panel, 4320-byte stride, `a8r8g8b8`.
 - ABL leaves a continuously scanned splash framebuffer at `0x9d400000`; MDSS/DSI keep scanning it after handoff.
 - The kernel publishes an AppleCLCD/IOSurface path and composes in software. There is no Adreno GPU driver.
-- The lock screen currently appears **rotated 90°**; the panel/ADT orientation is not fixed yet.
+- The lock screen is portrait and upright on the panel (see `docs/images/lock-screen.jpg`). The date, clock and status bar render red/orange in that photo; whether that is the wallpaper tint or a framebuffer colour-format issue has not been checked.
 
 ## Touch
 

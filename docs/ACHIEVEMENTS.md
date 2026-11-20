@@ -62,7 +62,7 @@ All dates are 2026-11-19 unless noted. This is the lavender-specific delta on to
   - `SWEET FB: display on`, `SWEET FB: swap 1..6`.
   - `SpringBoard` and `backboardd` alive; no panic and no eMMC timeout.
 - Known-good shim: `shim-boot-lavender-0192-lite-cpus4-2026-11-19.img`, 6,709,248 bytes, SHA-256 `ba282d7977a23189e084705606f71dbf2c226fbbc02475bc7891a6c4c44e9425`.
-- The lock screen is rotated 90°, the clock shows 1969/December 31 (RTC unset), and touch/buttons/USB/GPU are still missing.
+- The lock screen is upright; the clock shows 1969/December 31 (RTC unset), and touch/buttons/USB/GPU were still missing at this milestone. (An earlier note called the lock screen "rotated 90°"; the photo shows it is not.)
 - The second boot/persistence check is pending because the physical buttons do not work.
 
 ## Rejected variants

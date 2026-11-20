@@ -78,9 +78,9 @@ There is still no `adb`/`fastboot` while iOS runs.
 
 Do not use EDL/test points unless you know the hardware; the phone is not bricked.
 
-## Lock screen is rotated 90° / date is 1969
+## Lock screen date is 1969 / colours look red
 
-- The panel/ADT orientation is not fixed; the framebuffer is composed at 1080×2340 but the UI is rotated. This is a display/ADT issue, not a kernel panic.
+- The orientation is correct (portrait, upright). The red/orange date, clock and status bar in the lock screen photo are not explained yet: wallpaper tint or framebuffer colour format.
 - The RTC is not set, so iOS shows 1969/December 31. Set the PMIC RTC or let iOS sync time later.
 
 ## `launchd` dies with `CS_KILLED`

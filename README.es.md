@@ -23,23 +23,24 @@ El port se apoya en [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-6
 | Code signing de bring-up | **Anda** | `cs_enforcement_disable=1`, `unentitled_ios_sim_launch=1`, `launchd_unsecure_cache=1` |
 | Log persistente | **Anda** | Anillo `SANTONILOG1` de 4 MiB en SYSTEM |
 | 4 Gold cores | **Anda** | `cpus=4`; `SWEET CPU: requested=4 selected=4` |
+| Orientación del panel | **Anda** | El lock screen se ve vertical y derecho, ocupando el panel 1080×2340 (`docs/images/lock-screen.jpg`) |
+| Botones físicos | **Anda** | Parche `0201`: Power/Vol+/Vol− por el árbitro SPMI v3 de SDM660, llegan al HID de iOS |
+| Red USB | **Anda** | Parches `0200`, `0210`–`0213`: DWC3 + QUSB2, CDC-NCM (UsbNcm de Windows, macOS, Linux), `ping 192.168.7.2`, log del kernel en vivo por UDP 5140 (`sweetusb=2`; `tools/usbnet-windows.ps1`) |
 
 ## Qué falta
 
 | Área | Estado | Notas |
 | --- | --- | --- |
-| Touch | **Falta** | Novatek NT36672 en QUP1 I2C (`0x62`); solo hay probes/stub |
-| Botones físicos | **Funciona** | Parche `0201`: Power/Vol+/Vol− por el árbitro SPMI v3 de SDM660, llegan al HID de iOS |
-| Red USB | **Funciona** | Parches `0200`, `0210`–`0213`: DWC3 + QUSB2, CDC-NCM (UsbNcm de Windows, macOS, Linux), `ping 192.168.7.2`, log del kernel en vivo por UDP 5140 (`sweetusb=2`; `tools/usbnet-windows.ps1`) |
+| Touch | **En progreso** | Novatek en QUP1 I2C (`0x62`): parches `0193`–`0199`, `0203` (probe, arranque del firmware NT36772, xdata, hilo HID); todavía no usable |
 | GPU | **Falta** | Adreno 512 sin driver; `IOAcceleratorES` vacío evita la espera de QuartzCore, render por software |
 | Cámara | **Falta** | Botón y stack de cámara sin implementar |
 | Wi-Fi / Bluetooth | **Falta** | Sin firmware/driver Wi-Fi; `bluetoothd` respawnea sin hardware |
 | Audio | **Falta** | Sin driver de codec |
 | Batería / carga | **Parcial** | Fallback estático (100 %, 4200 mV); sin gauge |
-| Orientación del panel | **Mal** | El lock screen se ve rotado 90°; falta ajustar panel/ADT |
+| Colores del lock screen | **A verificar** | En la foto, fecha, hora y barra de estado salen rojas/anaranjadas: tinte del wallpaper o formato de color del framebuffer, sin revisar |
 | RTC / fecha | **Mal** | Muestra 1969/31 de diciembre; el RTC no está seteado |
 | `preboot` / data volume | **Parcial** | `libignition` no encuentra el preboot; el boot sigue sin sellar |
-| Segundo boot / persistencia | **Pendiente** | El primer boot completó la migración; el segundo boot corrió sin migración (el plist funciona); igual tarda ~18 min hasta el lock screen |
+| Segundo boot / tiempo de boot | **Parcial** | El segundo boot corre sin migración (el plist funciona), pero tarda ~18 min hasta el lock screen |
 
 ## Hitos
 

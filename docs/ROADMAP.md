@@ -22,13 +22,14 @@ The port boots to the iOS 16.7.16 lock screen. The next work is ordered by what 
    - Windows has no CDC-ECM driver: add an NCM function, or use macOS/Linux as the host.
    - This gives `adb`/live logs and makes recovery much easier.
 
-4. **Panel orientation**
-   - The lock screen is rotated 90°. Fix the panel/ADT orientation or add a framebuffer rotation.
-   - Verify the touch coordinate transform after rotation.
+4. **Lock screen colours** (to verify)
+   - The lock screen is upright (an earlier "rotated 90°" note was wrong), but the date, clock and status bar render red/orange in the photo.
+   - Check whether that is the iOS 16 wallpaper tint or a framebuffer pixel-format (channel order/alpha) issue before changing anything.
+   - Touch coordinates map to the panel as it is: native portrait 1080×2340.
 
-5. **Second-boot check**
-   - Once the `0201` buttons work on the device, reboot and confirm the `DataMigration` plist skips the long migration.
-   - If it does not, inspect `datamigrator` and the data volume.
+5. **Second boot / boot time**
+   - Done: the second boot skips the data migration (`DataMigration` plist).
+   - Still ~18 min to the lock screen: use the USB live log (`sweetusb=2`) to find where the time goes.
 
 ## P1 — platform completeness
 

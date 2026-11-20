@@ -24,6 +24,7 @@ This is the honest state of the lavender port as of **2026-11-19**. The device b
 | AMFI / AKS stubs | Partial | Built-in AMFI policy, `AppleKeyStore` user client; `WrapKey` (selector 10) returns `kIOReturnUnsupported` |
 | Buttons | Works | Patch `0201`: Power (PM660 KPDPWR), Volume Down (RESIN), Volume Up (PM660L GPIO7) over the SPMI arbiter v3, `SWEET HID: key … (1 clients)` |
 | USB network | Works | Patches `0200`, `0210`–`0213`: QUSB2 PHY power-up and UTMI mux release, Linux DWC3 bring-up, CDC-NCM. Windows 11 binds UsbNcm (426 Mbps link), `ping 192.168.7.2` 70/70, live kernel log on UDP 5140 |
+| Panel orientation | Works | Portrait and upright, full 1080×2340 panel (`docs/images/lock-screen.jpg`) |
 | Persistent log | Works | 4 MiB `SANTONILOG1` ring on SYSTEM; `sweet-log.py` decodes it |
 | DataMigration skip | Partial | `com.apple.DataMigration.plist` with `LastSystemVersion=20H392`; first boot still migrates, later boots should skip |
 | Battery fallback | Partial | Static 100 %, 4200 mV; no gauge |
@@ -41,7 +42,7 @@ This is the honest state of the lavender port as of **2026-11-19**. The device b
 | Bluetooth | Missing | `bluetoothd` respawns without hardware |
 | Audio | Missing | No codec driver |
 | Battery gauge | Missing | Static fallback only |
-| Panel orientation | Wrong | Lock screen is rotated 90°; panel/ADT orientation needs fixing |
+| Lock screen colours | To verify | Date, clock and status bar render red/orange in the lock screen photo: wallpaper tint or framebuffer colour format, not checked |
 | RTC | Wrong | Clock shows 1969/December 31; RTC not set |
 | `preboot` | Partial | `libignition: failed to lookup preboot: 25`; boot continues unsealed |
 | Data volume | Partial | `mount: data volume missing, but not required in env: 0`; `/private/var` is on the root HFSX |

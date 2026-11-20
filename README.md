@@ -23,23 +23,24 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 | Code signing bring-up | **Works** | `cs_enforcement_disable=1`, `unentitled_ios_sim_launch=1`, `launchd_unsecure_cache=1` |
 | Persistent kernel log | **Works** | 4 MiB `SANTONILOG1` ring on the SYSTEM partition |
 | 4 Gold cores | **Works** | `cpus=4`; `SWEET CPU: requested=4 selected=4` |
+| Panel orientation | **Works** | The lock screen is portrait and upright, filling the 1080×2340 panel (`docs/images/lock-screen.jpg`) |
+| Physical buttons | **Works** | Patch `0201`: Power/Volume Up/Volume Down through the SDM660 SPMI arbiter v3, delivered to iOS HID |
+| USB network | **Works** | Patches `0200`, `0210`–`0213`: DWC3 + QUSB2 bring-up, CDC-NCM (Windows UsbNcm, macOS, Linux), `ping 192.168.7.2`, live kernel log on UDP 5140 (`sweetusb=2`; `tools/usbnet-windows.ps1`) |
 
 ## What does not work yet
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Touch | **Missing** | Novatek NT36672 on QUP1 I2C (`0x62`); only probe/stub patches exist |
-| Physical buttons | **Works** | Patch `0201`: Power/Volume Up/Volume Down through the SDM660 SPMI arbiter v3, delivered to iOS HID |
-| USB network | **Works** | Patches `0200`, `0210`–`0213`: DWC3 + QUSB2 bring-up, CDC-NCM (Windows UsbNcm, macOS, Linux), `ping 192.168.7.2`, live kernel log on UDP 5140 (`sweetusb=2`; `tools/usbnet-windows.ps1`) |
+| Touch | **In progress** | Novatek on QUP1 I2C (`0x62`): patches `0193`–`0199`, `0203` (probe, NT36772 firmware boot, xdata, HID thread); not usable yet |
 | GPU acceleration | **Missing** | Adreno 512 has no driver; an empty `IOAcceleratorES` keeps QuartzCore from waiting, rendering is software |
 | Camera | **Missing** | Camera button and camera stack are not implemented |
 | Wi-Fi / Bluetooth | **Missing** | No Wi-Fi firmware/driver; `bluetoothd` respawns without hardware |
 | Audio | **Missing** | No audio codec driver |
 | Battery / charging UI | **Partial** | Static battery fallback (`100%`, 4200 mV); no gauge driver |
-| Panel orientation | **Wrong** | The lock screen is rotated 90°; the panel/ADT orientation still needs to be fixed |
+| Lock screen colours | **To verify** | The date, clock and status bar render red/orange on the lock screen photo: wallpaper tint or a framebuffer colour-format issue, not checked yet |
 | RTC / date | **Wrong** | The clock shows 1969/December 31; the RTC is not set |
 | `preboot` / data volume | **Partial** | `libignition` cannot find the preboot volume; the boot continues unsealed |
-| Second boot / persistence | **Pending** | The first boot completed the data migration; the second boot ran without the migration (the `DataMigration` plist works); it still takes ~18 min to the lock screen |
+| Second boot / boot time | **Partial** | The second boot runs without the data migration (the `DataMigration` plist works), but still takes ~18 min to the lock screen |
 
 ## Milestones
 
@@ -138,4 +139,4 @@ This is a research project. XNU is open source under the Apple Public Source Lic
 
 ## Contributing
 
-The most useful next steps are the Novatek touch driver, the panel orientation and the boot time (~18 min to the lock screen). If you have a lavender unit and can test, open an issue with the boot log and the exact panel/touch variant.
+The most useful next steps are the Novatek touch driver and the boot time (~18 min to the lock screen). If you have a lavender unit and can test, open an issue with the boot log and the exact panel/touch variant.
