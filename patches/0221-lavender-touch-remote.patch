@@ -140,17 +140,6 @@ diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
 diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
 --- a/bsd/dev/sweet_usb.c
 +++ b/bsd/dev/sweet_usb.c
-@@ -72,3 +72,10 @@
-+__attribute__((weak)) void
-+santoni_touch_remote(const uint8_t *frame, uint32_t len)
-+{
-+	(void)frame;
-+	(void)len;
-+}
-+
- void
- sweet_usb_probe(void)
- {
 @@ -519,6 +519,8 @@
  			stats.packets_in = 1;
  			stats.bytes_in = len;
