@@ -2,9 +2,10 @@
 
 Status: **bring-up started (2026-11-21)**. No sound yet. Patches `0500` (read-only probe),
 `0501` (LPASS/ADSP power-up), `0502` (ADSP firmware dry run), `0503` (TrustZone PAS load),
-`0504` (post-PAS inventory) and `0505` (SDM660 SMP2P v1 layout + vendor ids) are written;
-`0500`–`0504` compile in the kernel CI. None has run on the phone yet. The full plan and the
-hardware evidence are in [`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
+`0504` (post-PAS inventory), `0505` (SDM660 SMP2P v1 layout + vendor ids) and `0506` (SMP2P
+out 429 + kick) are written; `0500`–`0505` compile in the kernel CI. None has run on the
+phone yet. The full plan and the hardware evidence are in
+[`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
 
 ## What the phone actually has
 
@@ -47,8 +48,8 @@ userland AudioServer plug-in in `/System/Library/Audio/Plug-Ins/HAL` presenting
 | `0503` | TrustZone PAS load (`lavaud=4`): refuse over stale SMEM, `INIT_IMAGE`, `MEM_SETUP`, copy the segments into `0x92a00000`, `AUTH_AND_RESET`, then read the Q6SS; `lavaudforce=1` overrides the stale check | written; host tests green; pending device boot |
 | `0504` | read-only inventory after PAS (`lavaud=5`): wait up to 3 s for the ADSP's SMP2P item, dump the apps↔ADSP partition items, `$SMP` headers/entries and the GLINK fifo candidates | written; host tests green; pending device boot |
 | `0505` | fix the SDM660 SMP2P **v1 packed header** (`feature_version`/`rem_loc_proc_id`/`valid_total_ent`, not the SM6225 layout) and print the vendor ids: AP→ADSP 429, ADSP→AP 443, GLINK 478/479/480 | written; host tests green; pending device boot |
-| `0506` | SMP2P out item 429 + `slave-kernel` READY, GLINK `lpass` edge 478/479/480 (first SMEM writes) | planned |
-| `0507` | APR `apr_audio_svc`, AFE/ASM/ADM service enumeration | planned |
+| `0506` | `lavaud=6`: creates the AP SMP2P item 429 in the apps↔ADSP partition (hwlock 3, v1 header, `master-kernel`/`sleepstate`), kicks the ADSP on APCS bit 10 and waits up to 5 s for item 443's `slave-kernel` READY. First SMEM write of the series | written; host tests green; pending device boot |
+| `0507` | GLINK `lpass` edge 478/479/480, channel open/version and APR `apr_audio_svc` | planned |
 | `0508` | PM660L codec over SPMI (ID, supplies, reset, MCLK, HP/SPK/MBHC) | planned |
 | `0509` | LPASS digital codec + SWR master + AFE `INT4_MI2S_RX` port | planned |
 | `0510` | ASM stream + ADM COPP to `INT4_MI2S_RX`, 1 kHz test tone | planned |
@@ -65,6 +66,7 @@ lavaud=2 lavauddelay=25    # probe + LPASS ADSP power-up
 lavaud=3 lavauddelay=25    # + adsp.mdt/adsp.bNN dry run from the modem FAT16
 lavaud=4 lavauddelay=25    # + TrustZone PAS load and ADSP start
 lavaud=5 lavauddelay=25    # + post-PAS SMEM/SMP2P inventory (read only)
+lavaud=6 lavauddelay=25    # + create SMP2P out 429, kick the ADSP, wait READY
 ```
 
 `lavaud=0` (or absent) keeps the driver silent. The thread waits 25 s after the eMMC
