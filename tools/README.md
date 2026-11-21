@@ -57,6 +57,7 @@ The default command line is the lock-screen build: `rd=emmcroot0`, `emmcrw=1 roo
 | `mkbootimg.py`, `unpack_bootv2.py`, `extract_appended_dtb.py`, `prune_dtb.py` | Android boot image pack/unpack and DTB extraction/pruning |
 | `mkinit.py`, `santoni-init.S`, `sweet-init.S` | The static Mach-O PID 1 used by RAM-disk test boots |
 | `check_patch.py`, `extract_drivers.py` | Patch structure checks; regenerate the `drivers/` mirrors from `xnu/patches/` |
+| `sweet-ssh.py`, `ssh-root-image.sh` | SSH over USB: dropbear, dash and toybox, keys and launchd job into the root image; rebuilds the sparse image on macOS (`docs/SSH.md`) |
 | `sweet-root-tweaks.py`, `mkiosroot.sh`, `patch-launchd-plist.py`, `sparsediff.py` | Root image preparation |
 | `sweet-log-pull.sh` | Host side: pull and decode `SANTONILOG1` over adb from recovery |
 | `sweet-usbnet.sh` | Linux host side of the `0200` USB network: wait for the CDC-ECM interface, set 192.168.7.1/24, save the live log |

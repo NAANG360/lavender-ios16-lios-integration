@@ -25,7 +25,7 @@ El port se apoya en [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-6
 | 4 Gold cores | **Anda** | `cpus=4`; `SWEET CPU: requested=4 selected=4` |
 | Orientación del panel | **Anda** | El lock screen se ve vertical y derecho, ocupando el panel 1080×2340 (`docs/images/lock-screen.jpg`) |
 | Botones físicos | **Anda** | Parche `0201`: Power/Vol+/Vol− por el árbitro SPMI v3 de SDM660, llegan al HID de iOS |
-| Red USB | **Anda** | Parches `0200`, `0210`–`0213`: DWC3 + QUSB2, CDC-NCM (UsbNcm de Windows, macOS, Linux), `ping 192.168.7.2`, log del kernel en vivo por UDP 5140 (`sweetusb=2`; `tools/usbnet-windows.ps1`) |
+| Red USB | **Anda** | Parches `0200`, `0210`–`0213`: DWC3 + QUSB2, CDC-NCM (UsbNcm de Windows, macOS, Linux), `ping 192.168.7.2`, log del kernel en vivo por UDP 5140 (`sweetusb=2`; `tools/usbnet-windows.ps1`). SSH root por el enlace (dropbear, `docs/SSH.md`) |
 | Touch | **Anda (lento)** | Novatek NT36672A en QUP1 I2C (bit-bang): parches `0193`–`0208`, `0230`. Taps y swipes llegan a iOS: setup, home screen e íconos responden. Cada lectura tarda ~14 ms (12 bytes) a ~65 ms (frame completo): ver ROADMAP |
 
 ## Qué falta
