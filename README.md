@@ -53,7 +53,7 @@ Under the Apple logo and progress bar, the userland **Skylight** window server r
 | Camera | **Missing** | Camera button and camera stack are not implemented |
 | Wi-Fi | **Missing** | No Wi-Fi driver or firmware for the WCN3990 radio; the network is USB only |
 | Bluetooth | **Missing** | No Bluetooth transport; `bluetoothd` respawns in a loop without hardware |
-| Audio | **Missing** | No audio codec / speaker / microphone driver: no sound in or out |
+| Audio | **Missing** | The phone uses the PM660L analog codec, the LPASS digital codec/SoundWire and the ADSP (not the WCD9335; the DTBO disables `slim_aud`). Patch `0500` is a read-only platform probe (`lavaud=1`): the ladder to sound is in [docs/AUDIO.md](docs/AUDIO.md). |
 | Wallpapers (most) | **Partial** | Only simple wallpapers (Color) render a preview; ones that need Metal such as Astronomy are very slow or fail. See Wallpapers |
 | Battery / charging UI | **Partial** | Static battery fallback (`100%`, 4200 mV); no gauge driver |
 | Home screen widgets | **Missing** | Both slots keep the `Esperando…` placeholder: the WidgetKit extension never hands over a first timeline. Not investigated yet; it sits in the same extension-hosting area as the wallpaper providers |
@@ -169,7 +169,7 @@ The exact commands, hashes and caveats are in [`docs/BUILD.md`](docs/BUILD.md).
 ```
 README.md                 this file
 README.es.md              Spanish summary
-docs/                     hardware, build, boot, achievements, roadmap, legal
+docs/                     hardware, build, boot, audio, achievements, roadmap, legal
   images/                 lock screen, home screen, Settings, Siri setup and boot self-tests
 xnu/patches/              the complete XNU patch series (0001-0192 base, 0200+ lavender)
 shim/                     the boot shim (Android boot image -> XNU)
@@ -181,6 +181,8 @@ tests/                    patch checks and host tests; tests/host/ runs the USB/
 ```
 
 The repository holds everything needed to build the lavender kernel and shim. Apple's XNU source comes from Apple's open-source release at build time. Apple binaries (IPSW, ADT, root image) are never included.
+
+The audio bring-up (the PM660L/LPASS/ADSP chain, patches `0500`+) and its current status are in [`docs/AUDIO.md`](docs/AUDIO.md).
 
 ## Credits
 

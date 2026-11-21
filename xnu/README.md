@@ -47,8 +47,13 @@
 | `0253-lavender-gpu-fence-reset.patch` | lavgpu=12: 16 fences with different values, a deliberate CP hang (short CP_NOP swallows the next packet), RBBM software reset, CP bring-up again (zap stays loaded), and a fence that must land after the reset | Device: 16/16 fences, deliberate hang, RBBM_SW_RESET + re-bring-up, fence lands again (M2 done) |
 | `0300-lavender-gpu-compute.patch` | lavgpu=13: first compute dispatch. Hand-assembled ir3 shader (mov imm, stg, end; A5xx encodings checked against Mesa disassembler vectors) stores 0xc0de0001 to memory; 64-bit address-mode and UCHE registers, cs_program/launch_grid register order from Gallium fd5, CP_LOAD_STATE4 shader preload, CP_EXEC_CS; GPU reset and bring-up again if the word does not land | Device: CP consumed all 86 dwords, no hang, reset recovery works, but the store did not land (see 0301) |
 | `0301-lavender-gpu-compute-flush.patch` | lavgpu=13 again: UCHE flush and CP_EVENT_WRITE CACHE_FLUSH_TS after the dispatch, in case the SP store sits in the write-back UCHE; logs the event word | Pending device test |
+| `0500-lavender-audio-probe.patch` | SDM660 audio platform probe (`bsd/dev/lavender_audio.c`), off unless `lavaud=N`: read-only GCC LPASS GDSC/vote, Q6SS, LPASS SMMU, digital codec/MCLK/AVTIMER/pinctrl, SMEM TOC + apps<->ADSP partition item walk (SMP2P/GLINK ids), APCS IPC. The phone has no WCD9335: the DTBO disables `slim_aud`; see `docs/AUDIO.md` | Written; host tests green; pending device test (`lavaud=1`) |
 
-New lavender work takes the next free number from `0200` up.
+Audio work takes `0500`–`0599`, the GPU series continues at `0300`+, and `0700`–`0706` is the
+WLAN/modem block.
+
+New lavender work takes the next free number from `0500` up (the audio series; `0700`–`0706`
+is the WLAN/modem block).
 
 ## Changing the series
 

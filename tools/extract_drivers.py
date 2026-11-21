@@ -32,6 +32,7 @@ DRIVERS = {
         "iokit/Kernel/arm/SweetSurface.cpp",
     ],
     "gpu": ["bsd/dev/lavender_gpu.c"],
+    "audio": ["bsd/dev/lavender_audio.c"],
     "touch": ["bsd/dev/sweet_touch.c"],
     "wifi": [
         "bsd/dev/lavender_modem.c",

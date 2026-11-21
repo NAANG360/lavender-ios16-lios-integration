@@ -23,6 +23,18 @@
 - The iOS 16.7.16 (20H392) iPhone X IPSW is used only to build the local userland/root image.
   It is **not** distributed here.
 
+## Vendor sources for the SDM660 audio path
+
+- [`MiCode/Xiaomi_Kernel_OpenSource`](https://github.com/MiCode/Xiaomi_Kernel_OpenSource),
+  branch `lavender-q-oss` (the phone's own Android 10 kernel): `sound/soc/codecs/`,
+  `sound/soc/msm/`, `arch/arm64/boot/dts/qcom/` and the `tfa98xx` tree are the
+  register/protocol reference for the PM660L analog codec, the LPASS digital codec,
+  SoundWire and the AFE ports. Read as behaviour, not as portable code.
+- Linux `drivers/soc/qcom/subsys-pil-tz.c`, `pil-q6v5.c`, `smp2p.c`,
+  `glink_smem_native_xprt.c` and `drivers/clk/qcom/gcc-sdm660.c`: TrustZone PAS
+  command numbers, Q6SS offsets, SMP2P item layout and the LPASS GDSC/vote registers.
+  The SDM660 vendor kernel is `msm-4.4`; mainline carries the same PAS/Q6SS names.
+
 ## Tools
 
 - [TWRP for lavender](https://twrp.me/xiaomi/xiaomiredminote7.html) — recovery used for backups and

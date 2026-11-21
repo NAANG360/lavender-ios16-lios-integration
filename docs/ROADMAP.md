@@ -59,7 +59,16 @@ The port boots to the iOS 16.7.16 lock screen and home screen; touch, buttons an
    - WCN3990 firmware/driver is missing. The whyred/topaz trees have reference code.
 
 11. **Audio**
-    - No codec driver. The PM660/PM660L audio path needs bring-up.
+    - The phone is **not** a WCD9335/SLIMbus board: the live DTBO disables `slim_aud`, and
+      the enabled card is `qcom,sdm660-asoc-snd` with the PM660L analog codec (SPMI
+      `0xf000`), the LPASS digital codec (`0x152c0000`)/SoundWire master (`0x152c1000`) and
+      the ADSP (PAS 1). Speaker = AFE `INT4_MI2S_RX`; headphones = `INT0_MI2S_RX`;
+      microphone = `INT3_MI2S_TX`.
+    - `0500` (read-only platform probe) is written and its host tests pass; the ladder
+      through the TrustZone/PAS load, GLINK/APR, codec, AFE stream and the iOS HAL plug-in
+      is in [`docs/AUDIO.md`](AUDIO.md) and
+      [`work/briefs/audio-sdm660-brief.md`](../work/briefs/audio-sdm660-brief.md).
+    - Next: build/boot `0500` (`lavaud=1`), then `0501` power-up and `0502` firmware read.
 
 12. **Battery gauge**
     - The current fallback is static (100 %, 4200 mV). Add the PM660 gauge.

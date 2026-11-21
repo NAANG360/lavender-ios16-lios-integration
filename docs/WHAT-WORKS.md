@@ -45,7 +45,7 @@ This is the honest state of the lavender port as of **2026-11-21**. The device b
 | Camera | Missing | Camera stack and button are not implemented |
 | Wi-Fi | Missing | No WCN3990 firmware/driver |
 | Bluetooth | Missing | `bluetoothd` respawns without hardware |
-| Audio | Missing | No codec driver |
+| Audio | Missing | The phone uses the PM660L analog codec + LPASS digital codec/SoundWire and the ADSP, not the WCD9335: the DTBO disables `slim_aud`. Patch `0500` is a read-only platform probe (`lavaud=1`); no sound yet. See [Audio](AUDIO.md). |
 | Battery gauge | Missing | Static fallback only |
 | Home screen widgets | Missing | Both slots stay on `Esperando…`: the WidgetKit extension never delivers a first timeline |
 | Screen colours | To verify | Date, clock and status bar render red/orange on the lock screen and on the home screen: wallpaper tint or framebuffer colour format, not checked |
