@@ -67,7 +67,7 @@ The port boots to the iOS 16.7.16 lock screen and home screen; touch, buttons an
     - `0500` (read-only platform probe) is written and its host tests pass; the ladder
       through the TrustZone/PAS load, GLINK/APR, codec, AFE stream and the iOS HAL plug-in
       is in [`docs/AUDIO.md`](AUDIO.md) and
-      [`work/briefs/audio-sdm660-brief.md`](../work/briefs/audio-sdm660-brief.md).
+      [`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
     - Next: build/boot `0500` (`lavaud=1`), then `0501` power-up and `0502` firmware read.
 
 12. **Battery gauge**

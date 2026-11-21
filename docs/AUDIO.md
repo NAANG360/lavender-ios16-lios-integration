@@ -2,7 +2,7 @@
 
 Status: **bring-up started (2026-11-21)**. No sound yet. Patch `0500` is the read-only
 platform probe; it has not run on the phone. The full plan and the hardware evidence are
-in [`work/briefs/audio-sdm660-brief.md`](../work/briefs/audio-sdm660-brief.md).
+in [`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
 
 ## What the phone actually has
 
@@ -81,7 +81,7 @@ reads: a read of a gated LPASS block on this SoC can hang the bus. The next patc
 
 ## References
 
-- Hardware facts and the full ladder: [`work/briefs/audio-sdm660-brief.md`](../work/briefs/audio-sdm660-brief.md)
+- Hardware facts and the full ladder: [`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md)
 - Reusable ADSP/GLINK/APR shape: `refs/ios-topaz/xnu/patches/0144`–`0146`,
   `refs/ios-lavender/drivers/audio/hakios/`
 - TrustZone PIL sequence: `xnu/patches/0241` (GPU zap) and Linux
