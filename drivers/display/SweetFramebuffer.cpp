@@ -476,10 +476,18 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
 	};
 
 	IOLockLock(fb->fLock);
-	for (unsigned int i = 0; i < fb->fClients->getCount(); i++) {
-		IOMobileFramebufferUserClient *client =
-		    (IOMobileFramebufferUserClient *)fb->fClients->getObject(i);
-		client->notify(SWEET_FB_NOTIFY_VSYNC, values, 6);
+	/*
+	 * 0235: the panel only shows a frame every fFlushTicks ticks
+	 * (sweetfb_hz), but backboardd draws one frame per vsync on the CPU
+	 * (CA::OGL::SW). Notifying every tick made it render 60 frames a
+	 * second of which half were never shown.
+	 */
+	if ((count % fb->fFlushTicks) == 0) {
+		for (unsigned int i = 0; i < fb->fClients->getCount(); i++) {
+			IOMobileFramebufferUserClient *client =
+			    (IOMobileFramebufferUserClient *)fb->fClients->getObject(i);
+			client->notify(SWEET_FB_NOTIFY_VSYNC, values, 6);
+		}
 	}
 	if (fb->fIntf1 != NULL && (count % 300) == 0) {
 		uint32_t frames = fb->fIntf1[(0x800 + 0x0ac) / 4];

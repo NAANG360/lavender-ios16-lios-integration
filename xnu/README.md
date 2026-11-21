@@ -32,6 +32,7 @@
 | `0232-lavender-sdhci-dma-diag.patch` | Read-only SDHCI report at attach (CAPABILITIES, HOST_VERSION, clock/DLL/ADMA registers, bounce buffer address). Finding: this SDCC v5 core has **no SDMA** (CAPS bit 22), only ADMA2 (bit 19) with 64-bit addressing, which is why every SDMA attempt ended in `ADMAERR`. Optional timed tests behind `sweetemmc_speed=1` / `sweetemmc_dmatest=1` (off: they hold the controller lock and stall boot) | **On device** |
 | `0233-lavender-sdhci-adma2-read.patch` | ADMA2 **read** path into the bounce buffer (32 KiB descriptors, cache maintenance, PIO fallback, off after 3 failures). Writes stay PIO (0192). On by default after a PIO-vs-ADMA2 self-test at two places of the root; `sweetemmc_dma=0` keeps PIO | **On device**: cold read 465 KB/s (PIO) -> ~16 MB/s; boot to the lock screen ~23 min -> ~2 min; dyld cache files hash-identical to the host under 4 concurrent readers |
 | `0234-lavender-touch-real-panel-height.patch` | SweetHIDTouch takes the real panel size (1080x2340 from the boot video) instead of a hard-coded 2400: fixes the growing vertical offset and makes the bottom-edge band reachable (home/unlock swipe) | Pending device test |
+| `0235-lavender-vsync-at-panel-rate.patch` | The vsync notification to CoreAnimation follows `sweetfb_hz` (every `fFlushTicks` ticks) instead of a fixed 60 Hz, so the CPU compositor (`CA::OGL::SW`, ~150 % of backboardd) no longer draws frames the panel never shows | Pending device test |
 
 New lavender work takes the next free number from `0200` up.
 
