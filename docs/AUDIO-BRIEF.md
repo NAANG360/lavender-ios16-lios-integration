@@ -50,6 +50,7 @@ as "port the WCD9335". The phone's own DTBO says otherwise:
 | SMEM | `0x86000000`, 2 MiB | TOC at `0x861ff000` (`$TOC`), partitions `$PRT` |
 | APCS IPC | `0x17911000 + 0x8` | GLINK mask `0x200` (bit 9), SMP2P mask `0x400` (bit 10) |
 | SMP2P/GLINK IRQs | ADSP SMP2P SPI `0x9e`, GLINK SPI `0x9d` | `qcom,smp2p-adsp@17911008`, `qcom,glink-smem-native-xprt-adsp` |
+| SMP2P/GLINK SMEM items | APPS base **427**, AUDIO base **443**: AP→ADSP **429**, ADSP→AP **443**; GLINK **478/479/480** | vendor `include/soc/qcom/smem.h` in `lavender-q-oss` |
 | Codec reset | LPI GPIO 24 (`lpi_pinctrl@15070000`) | not TLMM GPIO 64; node name is misleading |
 | MCLK | LPI GPIO 18 func2, register `0x15020018` | 9.6 MHz (`0x927c00`) |
 | Primary MI2S pins | TLMM GPIO 12/13/14/15 | `pri_mi2s_*`, used by the reference TDM node, **not** by lavender's speaker |
@@ -100,7 +101,7 @@ CP/RB before any Metal driver.
 
 | Source | Reusable | Not reusable |
 | --- | --- | --- |
-| `refs/ios-topaz/xnu/patches/0144-topaz-audio-adsp.patch` | TrustZone PAS sequence (`INIT_IMAGE 1`, `MEM_SETUP 2`, `AUTH_AND_RESET 5`), MDT/ELF segment loader, SMP2P item layout, GLINK channel/queue implementation, "never boot over stale SMEM state" rule | addresses (SM6225 `0x53800000` carve-out), GPR/AudioReach protocol (`APM GET_SPF_STATE`), item IDs 429/443/478-480 |
+| `refs/ios-topaz/xnu/patches/0144-topaz-audio-adsp.patch` | TrustZone PAS sequence (`INIT_IMAGE 1`, `MEM_SETUP 2`, `AUTH_AND_RESET 5`), MDT/ELF segment loader, SMP2P item layout, GLINK channel/queue implementation, "never boot over stale SMEM state" rule | addresses (SM6225 `0x53800000` carve-out), GPR/AudioReach protocol (`APM GET_SPF_STATE`); the SM6225 SMP2P header layout is **not** SDM660's (see below) |
 | `refs/ios-topaz/xnu/patches/0145`, `0146` | codec/stream step organisation, RPM vote helper (TopazRpm), tone test shape | WCD937x over SoundWire, sia8159 amp, SM6225 RPMh |
 | `refs/ios-lavender/drivers/audio/hakios/hakios.adsp.c`, `hakios.sound.c` | **APR** channel (`apr_audio_svc`), ASM/ADM/AFE command shapes, internal-codec AFE port config, SMMU SID mask trick, test-tone/stream setup | SM6375/POCO X5 Pro addresses, WCD938x/SoundWire bolero macros, AW88261 amp, virtio-sound |
 | this repo `0700`/`lavender_wlan.c`, `0701`–`0706`/`lavender_modem.c` | the read-only probe format (announce + 2 s), GCC branch/GDSC read, SCM call convention (`scm_call`), Q6SS/RMB state read, **FAT16 modem-partition firmware reader**, eMMC read lock/retries | MSS-specific reset (ADSP uses PAS/TZ, not the MSS restart) |
@@ -120,7 +121,9 @@ reserved as we go so another agent cannot collide (this series uses 0500+).
 | `0501` | LPASS/ADSP power-up: vote `hlos1_vote_lpass_adsp_smmu`, un-collapse the LPASS ADSP GDSC, wait for PWR_ON, re-read Q6SS; no firmware | `lavaud=2` | if the GDSC never comes on, stop (do not touch Q6SS) |
 | `0502` | ADSP firmware read: FAT16 `image/adsp.mdt` + `adsp.bNN` from the modem partition, MDT hash-table parse, size/range check against `0x92a00000..0x94800000`; no TZ call yet | `lavaud=3` | read-only; validates the loader before any write |
 | `0503` | TrustZone PAS load: copy segments, `INIT_IMAGE`, `MEM_SETUP`, `AUTH_AND_RESET` (PAS 1), wait for ADSP PBL/err-ready | `lavaud=4` | never if SMEM shows an earlier run; `adsp_stop=1` shuts down first |
-| `0504` | SMP2P out item + `slave-kernel` READY, GLINK `lpass` edge, channel bring-up (discovered item IDs) | `lavaud=5` | only after 0503 says the DSP is up |
+| `0504` | post-PAS inventory: wait for the ADSP SMP2P item, dump the apps↔ADSP partition and the GLINK candidates (read only) | `lavaud=5` | only after 0503 says the DSP is up |
+| `0505` | fix the SMP2P **v1 packed header** (SDM660 vendor layout) and print the fixed ids 429/443/478/479/480 (read only) | `lavaud=5` | none; the 0500/0504 parser used the SM6225 layout and would have mis-decoded this SoC |
+| `0506` | SMP2P out item 429 + `slave-kernel` READY, GLINK `lpass` edge 478/479/480 (first SMEM writes) | `lavaud=6` | only with the exact ids and after the inventory |
 | `0505` | APR `apr_audio_svc`: enumerate AFE/ASM/ADM services; no audio yet | `lavaud=6` | polling only, no interrupts |
 | `0506` | PM660L codec bring-up over SPMI: ID/revision, supplies, codec reset (LPI GPIO 24), MCLK 9.6 MHz, MBHC/HPH/SPK blocks; read back | `lavaud=7` | codec writes after supplies are verified; keep `cdc-vdd-pa`/BOB state |
 | `0507` | LPASS digital codec + SWR master + AFE `INT4_MI2S_RX` port: bit clock/frame sync, SWR frame shape, port started | `lavaud=8` | must not touch LPASS registers while the DSP owns the block; check 0505 first |
@@ -137,11 +140,13 @@ step without another blind boot.
 1. **Is the LPASS ADSP power domain on after ABL?** (`0x7d034` PWR_ON/SW_COLLAPSE)
    and is the SMMU vote on (`0x7d014`)?
 2. **Is the ADSP already running?** The SMEM ADSP partition (host0 0, host1 2) will
-   hold the ADSP's `$SMP` item and GLINK fifos if it ran; this decides whether
+   hold the ADSP's `$SMP` item (443) and GLINK fifos if it ran; this decides whether
    `AUTH_AND_RESET` can be called without a shutdown first.
-3. **Which SMEM item IDs does this firmware use for SMP2P out/in and GLINK
-   descriptor/RX/TX?** The topaz ids (429/443, 478/479/480) are SM6225's; the TOC
-   and item walk gives the real ones. The item walk prints `$SMP` headers and sizes.
+3. **What do the fixed ids look like on this firmware?** The vendor `smem.h` gives
+   429/443 and 478/479/480; the inventory confirms they exist and whether
+   `slave-kernel` is set. The SMP2P header is the v1 packed form:
+   `magic, feature_version, rem_loc_proc_id, valid_total_ent, flags`, then
+   16 × `{name[16], value}` — **not** the SM6225 layout.
 4. **Is the LPASS Q6SS already out of reset / does the GDSC stay on?**
 5. **What is the LPASS SMMU state?** (global sCR0, SMR/S2CR mapping) - needed before
    any ASM buffer is handed to the DSP.

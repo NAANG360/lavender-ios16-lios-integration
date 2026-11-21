@@ -1,10 +1,10 @@
 # Audio
 
 Status: **bring-up started (2026-11-21)**. No sound yet. Patches `0500` (read-only probe),
-`0501` (LPASS/ADSP power-up), `0502` (ADSP firmware dry run), `0503` (TrustZone PAS load) and
-`0504` (post-PAS SMEM/SMP2P inventory) are written; `0500`–`0503` compile in the kernel CI.
-None has run on the phone yet. The full plan and the hardware evidence are in
-[`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
+`0501` (LPASS/ADSP power-up), `0502` (ADSP firmware dry run), `0503` (TrustZone PAS load),
+`0504` (post-PAS inventory) and `0505` (SDM660 SMP2P v1 layout + vendor ids) are written;
+`0500`–`0504` compile in the kernel CI. None has run on the phone yet. The full plan and the
+hardware evidence are in [`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
 
 ## What the phone actually has
 
@@ -45,13 +45,15 @@ userland AudioServer plug-in in `/System/Library/Audio/Plug-Ins/HAL` presenting
 | `0501` | LPASS/ADSP power-up (SMMU vote, GDSC un-collapse, re-read Q6SS); restores the collapse on failure | written; host tests green; pending device boot (`lavaud=2`) |
 | `0502` | read `adsp.mdt` + `adsp.bNN` from the modem FAT16, parse the ELF/hash table and check every segment against the `0x92a00000` carve-out (read-only dry run) | written; host tests green; pending device boot (`lavaud=3`) |
 | `0503` | TrustZone PAS load (`lavaud=4`): refuse over stale SMEM, `INIT_IMAGE`, `MEM_SETUP`, copy the segments into `0x92a00000`, `AUTH_AND_RESET`, then read the Q6SS; `lavaudforce=1` overrides the stale check | written; host tests green; pending device boot |
-| `0504` | read-only inventory after PAS (`lavaud=5`): wait up to 3 s for the ADSP's SMP2P item, dump the apps↔ADSP partition items, `$SMP` headers/entries and the GLINK fifo candidates; the IDs are firmware-specific and feed the real SMP2P/GLINK patch | written; host tests green; pending device boot |
-| `0505` | APR `apr_audio_svc`, AFE/ASM/ADM service enumeration | planned |
-| `0506` | PM660L codec over SPMI (ID, supplies, reset, MCLK, HP/SPK/MBHC) | planned |
-| `0507` | LPASS digital codec + SWR master + AFE `INT4_MI2S_RX` port | planned |
-| `0508` | ASM stream + ADM COPP to `INT4_MI2S_RX`, 1 kHz test tone | planned |
-| `0509` | `/dev/lavender-audio` + the HAL plug-in (`Speaker`/`Hawking`/`Codec`) | planned |
-| `0510`+ | microphone (`INT3_MI2S_TX`/ADC), jack/MBHC, volume, suspend | planned |
+| `0504` | read-only inventory after PAS (`lavaud=5`): wait up to 3 s for the ADSP's SMP2P item, dump the apps↔ADSP partition items, `$SMP` headers/entries and the GLINK fifo candidates | written; host tests green; pending device boot |
+| `0505` | fix the SDM660 SMP2P **v1 packed header** (`feature_version`/`rem_loc_proc_id`/`valid_total_ent`, not the SM6225 layout) and print the vendor ids: AP→ADSP 429, ADSP→AP 443, GLINK 478/479/480 | written; host tests green; pending device boot |
+| `0506` | SMP2P out item 429 + `slave-kernel` READY, GLINK `lpass` edge 478/479/480 (first SMEM writes) | planned |
+| `0507` | APR `apr_audio_svc`, AFE/ASM/ADM service enumeration | planned |
+| `0508` | PM660L codec over SPMI (ID, supplies, reset, MCLK, HP/SPK/MBHC) | planned |
+| `0509` | LPASS digital codec + SWR master + AFE `INT4_MI2S_RX` port | planned |
+| `0510` | ASM stream + ADM COPP to `INT4_MI2S_RX`, 1 kHz test tone | planned |
+| `0511` | `/dev/lavender-audio` + the HAL plug-in (`Speaker`/`Hawking`/`Codec`) | planned |
+| `0512`+ | microphone (`INT3_MI2S_TX`/ADC), jack/MBHC, volume, suspend | planned |
 
 ## Running the probe
 
