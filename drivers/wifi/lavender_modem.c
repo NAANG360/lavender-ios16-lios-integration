@@ -179,6 +179,30 @@ modem_announce(const char *what)
 	modem_wait(2000);
 }
 
+/*
+ * The eMMC is shared with the root filesystem and the console flusher. The
+ * SDHCI wrapper serializes on its lock, but a transfer can still time out
+ * while the card is busy; retry with a thread delay instead of hammering the
+ * controller (0245 died on the first modem sector read at 45 s).
+ */
+static int
+emmc_read(uint64_t lba, uint32_t count, void *buf)
+{
+	int err = EIO;
+
+	for (int attempt = 0; attempt < 5; attempt++) {
+		err = santoni_emmc_read(lba, count, buf);
+		if (err == 0) {
+			return 0;
+		}
+		printf("SWEET MODEM: eMMC read 0x%llx+%u failed %d "
+		    "(attempt %d/5)\n", (unsigned long long)lba, count, err,
+		    attempt + 1);
+		modem_wait(100);
+	}
+	return err;
+}
+
 static uint32_t
 modem_poll_off(uint32_t off, int n)
 {
@@ -401,7 +425,7 @@ fat_open(void)
 	uint32_t fat_bytes, root_bytes, cluster, n, off;
 	int err;
 
-	err = santoni_emmc_read(MODEM_LBA, 1, bounce);
+	err = emmc_read(MODEM_LBA, 1, bounce);
 	if (err) {
 		printf("SWEET MODEM: modem sector 0 read failed %d\n", err);
 		return err;
@@ -430,7 +454,7 @@ fat_open(void)
 	/* FAT: 49 sectors (25,088 bytes). */
 	fat_bytes = fat_fat_size * SECTOR_SIZE;
 	fat = (uint8_t *)fat_buf;
-	err = santoni_emmc_read(MODEM_LBA + fat_fat_off / SECTOR_SIZE,
+	err = emmc_read(MODEM_LBA + fat_fat_off / SECTOR_SIZE,
 	    fat_fat_size, fat);
 	if (err) {
 		printf("SWEET MODEM: FAT read failed %d\n", err);
@@ -440,7 +464,7 @@ fat_open(void)
 	/* Root directory: 512 entries. */
 	root_bytes = fat_root_entries * 32;
 	root = fat + fat_bytes;
-	err = santoni_emmc_read(MODEM_LBA + fat_root_start, root_bytes / SECTOR_SIZE,
+	err = emmc_read(MODEM_LBA + fat_root_start, root_bytes / SECTOR_SIZE,
 	    root);
 	if (err) {
 		printf("SWEET MODEM: root directory read failed %d\n", err);
@@ -477,7 +501,7 @@ fat_open(void)
 			printf("SWEET MODEM: IMAGE/ exceeds the cache\n");
 			return ENOMEM;
 		}
-		err = santoni_emmc_read(MODEM_LBA + fat_cluster_sector(cluster),
+		err = emmc_read(MODEM_LBA + fat_cluster_sector(cluster),
 		    fat_spc, (uint8_t *)fat_buf + off);
 		if (err) {
 			printf("SWEET MODEM: IMAGE/ read failed %d\n", err);
@@ -538,7 +562,7 @@ fat_read_to_va(const char *name, vm_offset_t dst, uint32_t max)
 	while (off < size) {
 		uint32_t n = MIN(size - off, fat_cluster_bytes);
 
-		err = santoni_emmc_read(MODEM_LBA + fat_cluster_sector(cluster),
+		err = emmc_read(MODEM_LBA + fat_cluster_sector(cluster),
 		    fat_spc, bounce);
 		if (err) {
 			printf("SWEET MODEM: %s read failed %d at %u\n", name,

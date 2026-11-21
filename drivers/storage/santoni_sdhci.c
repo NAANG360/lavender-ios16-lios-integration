@@ -3987,19 +3987,29 @@ santoni_sdhci_read_blocks(uint64_t lba, uint32_t count, void *buf)
 }
 
 /*
- * 0245: read-only access to absolute eMMC LBAs for the modem loader. The
+ * 0245/0246: read-only access to absolute eMMC LBAs for the modem loader. The
  * modem partition is a FAT16 image; lavender_modem.c walks it to find MBA.MBN.
  * The write path stays private and partition-fenced.
+ *
+ * 0246: take santoni_sdhci_lock. The 0245 boot read the modem image while the
+ * console flusher held the controller for a PIO write; the raw read bypassed
+ * the lock, collided with it and died with cmd-timeout (EIO 5). Every other
+ * transfer (strategy and the log flusher) already serializes on this lock.
  */
 int santoni_emmc_read(uint64_t lba, uint32_t count, void *buf);
 
 int
 santoni_emmc_read(uint64_t lba, uint32_t count, void *buf)
 {
+	int error;
+
 	if (!se.ready) {
 		return ENXIO;
 	}
-	return santoni_sdhci_read_blocks(lba, count, buf);
+	lck_mtx_lock(&santoni_sdhci_lock);
+	error = santoni_sdhci_read_blocks(lba, count, buf);
+	lck_mtx_unlock(&santoni_sdhci_lock);
+	return error;
 }
 
 static int

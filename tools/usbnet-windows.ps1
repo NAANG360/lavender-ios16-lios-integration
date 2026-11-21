@@ -67,7 +67,9 @@ Write-Host "Live log on UDP 5140 (Ctrl+C to stop)..."
 $udp = New-Object System.Net.Sockets.UdpClient(5140)
 $ep = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
 $writer = $null
-if ($Log) { $writer = [System.IO.StreamWriter]::new($Log, $true, [System.Text.Encoding]::UTF8) }
+# A fixed live.txt path is the convention: truncate it every run so the file
+# always holds exactly this boot instead of a pile of appended sessions.
+if ($Log) { $writer = [System.IO.StreamWriter]::new($Log, $false, [System.Text.Encoding]::UTF8) }
 try {
     while ($true) {
         $bytes = $udp.Receive([ref]$ep)
