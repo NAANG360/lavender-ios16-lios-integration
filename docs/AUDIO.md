@@ -1,8 +1,9 @@
 # Audio
 
-Status: **bring-up started (2026-11-21)**. No sound yet. Patch `0500` is the read-only
-platform probe; it has not run on the phone. The full plan and the hardware evidence are
-in [`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
+Status: **bring-up started (2026-11-21)**. No sound yet. Patch `0500` (read-only probe) and
+`0501` (LPASS/ADSP power-up) are written; `0500` compiles in the kernel CI build. Neither has
+run on the phone. The full plan and the hardware evidence are in
+[`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
 
 ## What the phone actually has
 
@@ -39,8 +40,8 @@ userland AudioServer plug-in in `/System/Library/Audio/Plug-Ins/HAL` presenting
 
 | Patch | What | State |
 | --- | --- | --- |
-| `0500` | read-only probe: GCC LPASS GDSC/vote, Q6SS, LPASS SMMU, digital codec/MCLK/AVTIMER/pinctrl, SMEM TOC + ADSP partition items, APCS IPC | written; tests green; pending kernel build + device boot (`lavaud=1`) |
-| `0501` | LPASS/ADSP power-up (SMMU vote, GDSC un-collapse, re-read Q6SS) | planned |
+| `0500` | read-only probe: GCC LPASS GDSC/vote, Q6SS, LPASS SMMU, digital codec/MCLK/AVTIMER/pinctrl, SMEM TOC + ADSP partition items, APCS IPC | **kernel CI build green** (run `44927793793`); pending device boot (`lavaud=1`) |
+| `0501` | LPASS/ADSP power-up (SMMU vote, GDSC un-collapse, re-read Q6SS); restores the collapse on failure | written; host tests green; pending device boot (`lavaud=2`) |
 | `0502` | read `adsp.mdt` + `adsp.bNN` from the modem FAT16, MDT parse and range check | planned |
 | `0503` | TrustZone PAS load (PAS 1: `INIT_IMAGE`, `MEM_SETUP`, `AUTH_AND_RESET`) | planned |
 | `0504` | SMP2P out item + `slave-kernel` READY, GLINK `lpass` channels | planned |
@@ -56,7 +57,8 @@ userland AudioServer plug-in in `/System/Library/Audio/Plug-Ins/HAL` presenting
 Build the shim with the audio boot args and boot it like any other test image:
 
 ```
-lavaud=1 lavauddelay=25
+lavaud=1 lavauddelay=25    # read-only probe
+lavaud=2 lavauddelay=25    # probe + LPASS ADSP power-up
 ```
 
 `lavaud=0` (or absent) keeps the driver silent. The thread waits 25 s after the eMMC
@@ -64,20 +66,23 @@ probe so the persistent log and the USB live log are up, then announces each acc
 in advance. Expected lines in `SANTONILOG1` / the UDP live log:
 
 ```
-SWEET AUDIO: A0 platform probe in 25 s
+SWEET AUDIO: A0/A1 probe (lavaud=N) in 25 s
 SWEET AUDIO: gcc lpass_smmu_cbcr ... lpass_adsp_gdscr ...
 SWEET AUDIO: LPASS ADSP domain is ON|OFF
-SWEET AUDIO: q6 reset ... (only when the domain is on)
+SWEET AUDIO: smmu cbcr before/after ...        (lavaud>=2, only if off)
+SWEET AUDIO: adsp gdscr before/after ...       (lavaud>=2, only if off)
+SWEET AUDIO: q6 reset ...                      (domain on)
 SWEET AUDIO: lpass smmu sCR0 ...
 SWEET AUDIO: codec ... swr ...
 SWEET AUDIO: smem TOC ... apps<->adsp ... item ... (SMP2P/GLINK ids)
 SWEET AUDIO: apcs ipc ...
-SWEET AUDIO: A0 probe done
+SWEET AUDIO: probe done (lavaud=N)
 ```
 
-If the domain is off after ABL, the probe deliberately skips the Q6SS, codec and SMMU
-reads: a read of a gated LPASS block on this SoC can hang the bus. The next patch
-(`0501`) is the one that turns the domain on and then re-reads them.
+At `lavaud=1`, if the domain is off after ABL, the probe deliberately skips the Q6SS,
+codec and SMMU reads: a read of a gated LPASS block on this SoC can hang the bus.
+`lavaud=2` is the step that turns the domain on and then re-reads them; if the GDSC never
+reports `PWR_ON`, the collapse bit is put back and the rest is skipped.
 
 ## References
 
