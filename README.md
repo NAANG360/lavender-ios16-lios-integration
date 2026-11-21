@@ -184,6 +184,14 @@ The repository holds everything needed to build the lavender kernel and shim. Ap
 
 The audio bring-up (the PM660L/LPASS/ADSP chain, patches `0500`+) and its current status are in [`docs/AUDIO.md`](docs/AUDIO.md).
 
+## Companion repository: lavender-metal
+
+The GPU work lives in its own repository, [pcorezzola/lavender-metal](https://github.com/pcorezzola/lavender-metal): 
+the Adreno 512 (A5xx) bring-up notes, the host-side register layer and PM4 builder with a fake command processor, and the 
+plan towards a Metal-compatible layer. The kernel driver itself is shipped here, as patches `0236`-`0243`, `0249`-`0253` 
+and `0300`+ in `xnu/patches/` (source mirror in `drivers/gpu/lavender_gpu.c`), and is enabled with the `lavgpu=N` boot-arg. 
+GPU patches use the number range 0300-0399.
+
 ## Credits
 
 - [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-69/ios-lavender) — the lavender/whyred XNU tree, eMMC driver, shim and notes. This port would not exist without it.
