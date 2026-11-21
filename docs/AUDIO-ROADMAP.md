@@ -74,10 +74,14 @@ PAS id 1, carve-out `0x92a00000` + 30 MiB). No hay que portar WCD9335 ni tocar S
 - ~~Dry run: hash phdr 1, 21 segmentos (con BSS `B22`), 31.352.804 B, 0 mal;
   metadata 7964 B; imagen `92a00000..94800000`, entry en rango~~
 - ~~`PAS INIT_IMAGE` `ret 0 res 0` y `PAS MEM_SETUP` `ret 0 res 0`~~
-- ⚠️ La copia se colgó en **B04/0x92a20000** después de B02/B03; el resto de iOS
-  siguió vivo (lockscreen). `0508b` prueba el `io_copy` byte a byte del handoff,
-  `lavaudprobe=1` (lectura del carve-out + progreso cada 256 KiB) y
-  `lavaudcopy=0` (saltar la copia y probar `AUTH` sobre el carve-out tal cual).
+- ~~Copia byte a byte (`0508b`): pasó B04 y copió los 21 segmentos (B02..B22,
+  BSS incluido); el wedge de `0x92a20000` era el store de 64 bits~~
+- ~~La sonda del carve-out leyó `0x0 = 5800c00e` (B02) y `0x20000 = a09dc001`
+  (B04): el **ABL ya precarga el firmware**, la copia es innecesaria~~
+- ⚠️ Después de B22 el hilo se quedó en `flush_dcache64(carve-out, 31 MB, TRUE)`:
+  el carve-out es `no-map` y Device, no necesita flush; `phystokv_range()` puede
+  devolver 0 y el bucle no avanza (0508c). El shim `lavaud=4 lavaudcopy=0` evita
+  copia y flush y va directo a `AUTH`.
 
 ### Logrado (escrito y CI verde; falta el boot que lo verifique)
 
