@@ -4,7 +4,8 @@ Status: **bring-up started (2026-11-21)**. No sound yet. Patches `0500` (read-on
 `0501` (LPASS/ADSP power-up), `0502` (ADSP firmware dry run), `0503` (TrustZone PAS load),
 `0504` (post-PAS inventory), `0505` (SDM660 SMP2P v1 layout + vendor ids), `0506` (SMP2P
 out 429 + kick), `0507` (power order) and `0508` (PAS metadata/hash and SCM status) are
-written; `0507` run `44938672875` is green and `0508` is pending its CI run. One device
+written; `0507` run `44938672875` and `0508` run `44942180169` are green (`0508` was
+built on top of GPU `0313` because a newer push cancelled its own run). One device
 boot has run: the `0505` kernel with `lavaud=3` (UDP live log at 15:46, saved as
 `work/wlan/audio-0505-lavaud3-2026-11-21.txt`). It confirmed the LPASS ADSP GDSC is
 collapsed after ABL and that voting the SMMU branch first leaves it at `80000001` (EN,
@@ -66,7 +67,7 @@ userland AudioServer plug-in in `/System/Library/Audio/Plug-Ins/HAL` presenting
 | `0505` | fix the SDM660 SMP2P **v1 packed header** (`feature_version`/`rem_loc_proc_id`/`valid_total_ent`, not the SM6225 layout) and print the vendor ids: AP→ADSP 429, ADSP→AP 443, GLINK 478/479/480 | written; the pre-PAS partition dump from `lavaud=3` is empty (no entries yet) |
 | `0506` | `lavaud=6`: creates the AP SMP2P item 429 in the apps↔ADSP partition (hwlock 3, v1 header, `master-kernel`/`sleepstate`), kicks the ADSP on APCS bit 10 and waits up to 5 s for item 443's `slave-kernel` READY. First SMEM write of the series | written; pending device boot |
 | `0507` | power-order fix from the first device log: the LPASS ADSP GDSC must be un-collapsed **before** voting the SMMU branch; the old order left the branch at `80000001` (EN, OFF). GDSC first, then CBCR, with the old failure text preserved | **CI green** (run `44938672875`); pending device boot (`lavaud=3`) |
-| `0508` | PAS metadata/hash fixes from that log: find the hash phdr by `p_flags` at phdr+24 (`PT_NULL`, 7176 bytes); assemble header+phdrs+hash for `INIT_IMAGE` (the MDT is that concatenation even though `p_offset` lies); load and zero the `B22` BSS phdr (`filesz 0`, 0x23a000); require SCM x1 status; check the ELF entry; never read the Q6SS when the LPASS domain reported off | written; pending kernel CI and device boot |
+| `0508` | PAS metadata/hash fixes from that log: find the hash phdr by `p_flags` at phdr+24 (`PT_NULL`, 7176 bytes); assemble header+phdrs+hash for `INIT_IMAGE` (the MDT is that concatenation even though `p_offset` lies); load and zero the `B22` BSS phdr (`filesz 0`, 0x23a000); require SCM x1 status; check the ELF entry; never read the Q6SS when the LPASS domain reported off | **CI green** (run `44942180169`); pending device boot (`lavaud=4`) |
 | `0509` | GLINK `lpass` edge 478/479/480, channel open/version and APR `apr_audio_svc` | planned |
 | `0510` | PM660L codec over SPMI (ID, supplies, reset, MCLK, HP/SPK/MBHC) | planned |
 | `0511` | LPASS digital codec + SWR master + AFE `INT4_MI2S_RX` port | planned |
