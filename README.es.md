@@ -4,7 +4,7 @@ Port de investigación, no comercial, de **XNU 8796** (Darwin 22 / iOS 16) y del
 
 ![Lock screen de iOS 16 en el Redmi Note 7](docs/images/lock-screen.jpg)
 
-> **Estado: arranca hasta el lock screen de iOS 16.7.16.** Es un bring-up experimental, no un teléfono de uso diario. Los botones físicos y la red USB (CDC-NCM: ping y log del kernel en vivo desde Windows) funcionan en el teléfono. Touch, aceleración GPU, Wi-Fi, audio y batería todavía no funcionan. En este repositorio no se distribuyen binarios de Apple.
+> **Estado: arranca hasta el lock screen y la pantalla de inicio de iOS 16.7.16 en ~2–3 minutos.** Es un bring-up experimental, no un teléfono de uso diario. Funcionan el touch (taps y swipes), los botones físicos, la red USB (CDC-NCM: ping, SSH y log del kernel en vivo desde Windows) y las lecturas rápidas de eMMC (ADMA2). No funcionan la GPU, Wi-Fi, Bluetooth, audio, cámara ni un gauge de batería real: el render lo hace la CPU por software. En este repositorio no se distribuyen binarios de Apple.
 
 El port se apoya en [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-69/ios-lavender) (rama `lavender`), derivado de [`dipa-studio/ios-sweet`](https://github.com/dipa-studio/ios-sweet). Acá está la bitácora del bring-up de lavender, los parches que hicieron confiable la escritura eMMC y el estado real del dispositivo.
 
@@ -26,25 +26,63 @@ El port se apoya en [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-6
 | Orientación del panel | **Anda** | El lock screen se ve vertical y derecho, ocupando el panel 1080×2340 (`docs/images/lock-screen.jpg`) |
 | Botones físicos | **Anda** | Parche `0201`: Power/Vol+/Vol− por el árbitro SPMI v3 de SDM660, llegan al HID de iOS |
 | Red USB | **Anda** | Parches `0200`, `0210`–`0213`: DWC3 + QUSB2, CDC-NCM (UsbNcm de Windows, macOS, Linux), `ping 192.168.7.2`, log del kernel en vivo por UDP 5140 (`sweetusb=2`; `tools/usbnet-windows.ps1`). SSH root por el enlace (dropbear, `docs/SSH.md`) |
-| Touch | **Anda (lento)** | Novatek NT36672A en QUP1 I2C (bit-bang): parches `0193`–`0208`, `0230`. Taps y swipes llegan a iOS: setup, home screen e íconos responden. Cada lectura tarda ~14 ms (12 bytes) a ~65 ms (frame completo): ver ROADMAP |
+| Touch | **Anda** | Novatek NT36672A en QUP1 I2C (bit-bang): parches `0193`–`0208`, `0230`, `0231`, `0234`. Taps, íconos y el swipe hacia arriba para desbloquear funcionan; ~249 frames cada 10 s con 0 errores I2C (~14 ms por lectura). `0234` hace que SweetHID use el panel real de 1080×2340 (asumía 2400: desplazaba los toques y escondía el borde inferior). El kernel debe compilarlo el CI (Xcode 15): una compilación local con Xcode 16.2 leyó información de firmware basura y dejó el touch desactivado |
+| Lecturas eMMC por ADMA2 | **Anda** | Parches `0232`, `0233`: el core SDCC v5 no tiene SDMA, solo ADMA2. Lecturas en frío ~465 KB/s → ~16 MB/s; boot al lock screen ~23 min → ~2–3 min. Las escrituras siguen por PIO |
+| Wallpaper: Color | **Anda (vista previa)** | La galería de fondos abre y muestra la vista previa de Color (ver Wallpapers) |
 
 ## Qué falta
 
 | Área | Estado | Notas |
 | --- | --- | --- |
-| GPU | **Falta** | Adreno 512 sin driver; `IOAcceleratorES` vacío evita la espera de QuartzCore, render por software |
+| GPU | **Falta** | Adreno 512 sin driver y sin dispositivo Metal (`MTLCreateSystemDefaultDevice()` devuelve nil). Un `IOAcceleratorES` vacío evita la espera de QuartzCore; todo lo dibuja el renderizador por software de CoreAnimation (`CA::OGL::SW`), ver Rendimiento |
 | Cámara | **Falta** | Botón y stack de cámara sin implementar |
-| Wi-Fi / Bluetooth | **Falta** | Sin firmware/driver Wi-Fi; `bluetoothd` respawnea sin hardware |
-| Audio | **Falta** | Sin driver de codec |
+| Wi-Fi | **Falta** | Sin driver ni firmware para la radio WCN3990; la red es solo por USB |
+| Bluetooth | **Falta** | Sin transporte Bluetooth; `bluetoothd` respawnea en bucle sin hardware |
+| Audio | **Falta** | Sin driver de codec, parlante ni micrófono: no hay sonido de entrada ni de salida |
+| Wallpapers (la mayoría) | **Parcial** | Solo los simples (Color) generan vista previa; los que necesitan Metal, como Astronomy, van muy lentos o fallan. Ver Wallpapers |
 | Batería / carga | **Parcial** | Fallback estático (100 %, 4200 mV); sin gauge |
 | Colores del lock screen | **A verificar** | En la foto, fecha, hora y barra de estado salen rojas/anaranjadas: tinte del wallpaper o formato de color del framebuffer, sin revisar |
 | RTC / fecha | **Parcial** | El parche `0220` lee el RTC del PM660. Su cuenta cruda no es hora Unix (Android guarda su propio offset): cada teléfono necesita `sweetrtcoff=` medido una vez en TWRP (`docs/BOOT.md`); sin eso el calendario arranca en la hora de compilación del shim (`sweetrtc`). Falta ver el lock screen con la fecha real |
 | `preboot` / data volume | **Parcial** | `libignition` no encuentra el preboot; el boot sigue sin sellar |
-| Segundo boot / tiempo de boot | **Parcial** | El segundo boot corre sin migración (el plist funciona), pero tarda ~18 min hasta el lock screen |
+| Segundo boot / tiempo de boot | **Anda** | El segundo boot corre sin migración y llega al lock screen en ~2–3 min desde la lectura ADMA2 (`0233`); con PIO eran ~18–23 min |
+
+## Rendimiento
+
+Todo lo que se ve en pantalla lo dibuja la CPU: QuartzCore cae a su renderizador OpenGL por software (`CA::OGL::SW`) porque no hay GPU. Medido en el teléfono (4× Cortex-A73, panel 1080×2340):
+
+| Métrica | Valor | Cómo se midió |
+| --- | --- | --- |
+| Cuadros presentados | mediana **~13 fps** en un arranque, picos de **30–34 fps** al animar | líneas `SWEET FB: swap` del log en vivo, contadas por segundo (parche `0215`) |
+| Refresco del panel | **30 Hz** | `sweetfb_hz=30`; el framebuffer copia como máximo un cuadro cada dos vsync de 60 Hz |
+| CPU de `backboardd` | **~150–170 %** (de 400 %) en el lock screen quieto | tiempo de CPU acumulado de `ps` en ventanas de 60 s; muestreado con `spindump` |
+| En qué se va el tiempo | `CA::OGL::SW::scan_convert`, `image_sampler`, `tex_color_matrix_4x4_bias`, `tex_multiply_color`, `fill_round_rect` | `spindump` de `backboardd`, simbolizado con el dyld shared cache de 20H392 |
+| Lectura eMMC | **~16 MB/s** (antes ~465 KB/s) | ruta de lectura ADMA2, `0233` |
+| Touch | **~25 frames/s** leídos del controlador, 0 errores I2C | línea de log `WHYRED TOUCH: 10s frames` |
+| Boot al lock screen | **~2–3 min** (antes ~23 min) | marcas de tiempo del log en vivo |
+
+Lo que se probó para bajar la carga del compositor y su efecto:
+
+- Notificar el vsync a CoreAnimation al ritmo del panel en vez de 60 Hz fijos (`0235`): la CPU del lock screen quieto siguió en ~150–170 %; no hay ganancia medible en reposo, solo limita las animaciones a 30 fps.
+- *Reducir transparencia* y *Reducir movimiento* en Ajustes: sin cambio en la CPU en reposo (~149 %).
+- Congelar PosterBoard (el proceso del fondo): sin cambio, o sea que el fondo no es lo que mantiene ocupado al compositor. El lock screen quieto sigue presentando 7–16 cuadros por segundo; el proceso que los provoca todavía no está identificado.
+
+Una solución real necesita una ruta de GPU (un driver de kernel para el Adreno 512 más una capa compatible con Metal, que no existe para iOS) o un camino de composición por software mucho más barato. Ninguno está empezado.
+
+## Wallpapers
+
+*Ajustes → Fondo de pantalla → Añadir fondo* mostraba la galería en blanco y abortaba PosterBoard. Hallazgos:
+
+- `lsd` no podía cargar `/System/Library/xpc/extensions.plist` (falta AMFI), así que PlugInKit no veía extensiones. Se apartó el catálogo precompilado para que iOS escanee de forma nativa, se reconstruyeron una vez las bases de LaunchServices y se agregó la definición del punto de extensión `com.apple.posterkit.provider`. `GradientPosterExtension` y `CollectionsPoster` ahora se registran y arrancan.
+- Después PosterBoard abortaba en `-[PBFHomeScreenPreviewImageBuilder _imageForView:]`: genera la vista previa con Metal (`MTLCreateSystemDefaultDevice()` → `newCommandQueue`) y metía una cola nula en un `NSDictionary`. Un reemplazo pequeño de ese método (`tools/posterboard-preview.m`) evita el crash.
+- Resultado: la galería abre y **Color muestra su vista previa**. Falta verificar que se aplique en inicio y en el lock screen.
+- **Astronomy** y otros fondos que enlazan Metal siguen fallando: `AegirPoster` y `CollectionsPoster` terminan con `extension check-in timeout` y el sistema se pone muy lento. Esto necesita un dispositivo Metal, o sea el mismo límite que la GPU.
 
 ## Hitos
 
 - **2026-11-19 — Fase 0.** ROM stock verificada, TWRP, backups de 15 particiones + GPT y runbook de restauración.
+- **2026-11-21 — Touch arreglado.** Las compilaciones locales leían información de firmware basura del Novatek (`nvt fwinfo invalid`) y dejaban el touch desactivado; los kernels del CI (Xcode 15) no. `0234` hace que SweetHID use el panel real de 1080×2340: el swipe desde el borde inferior ahora desbloquea y los taps caen donde corresponde.
+- **2026-11-21 — La galería de wallpapers abre.** Puntos de extensión y proveedores registrados y crash de la vista previa sin Metal esquivado: Color muestra vista previa. Astronomy sigue lento.
+- **2026-11-21 — Perfil del compositor.** `spindump` muestra la CPU en el renderizador por software de CoreAnimation; `0235` alinea la notificación de vsync con el panel. Sin ganancia en reposo.
 - **2026-11-19 — Primer boot XNU.** Kernel `LAVENDER` compilado en GitHub Actions; `launchd` murió con `CS_KILLED`.
 - **2026-11-19 — Code signing.** Con los flags CS/RW arrancan `launchd`, `xpcproxy`, `cfprefsd`, `powerd`, `distnoted`, `watchdogd` y `SpringBoard`.
 - **2026-11-19 — Escrituras eMMC.** El parche `0192` espera DAT0 + `TRAN`/`READY_FOR_DATA` por CMD13 después de cada write PIO. Antes, CMD24/CMD25 daban timeout y el anillo quedaba vacío; después, el anillo volcó 100+ KiB sin timeouts.

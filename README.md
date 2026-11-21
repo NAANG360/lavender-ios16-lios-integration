@@ -4,7 +4,7 @@ A non-commercial research port of **XNU 8796** (Darwin 22 / iOS 16) and the **iP
 
 ![iOS 16 lock screen on the Redmi Note 7](docs/images/lock-screen.jpg)
 
-> **Status: boots to the iOS 16.7.16 lock screen.** This is an experimental bring-up, not a daily driver. Physical buttons and USB networking (CDC-NCM: ping and a live kernel log from Windows) work on the device. Touch, GPU acceleration, Wi-Fi, audio and battery are not working yet. No Apple binaries are distributed in this repository.
+> **Status: boots to the iOS 16.7.16 lock screen and home screen in ~2–3 minutes.** This is an experimental bring-up, not a daily driver. Touch (taps and swipes), physical buttons, USB networking (CDC-NCM: ping, SSH and a live kernel log from Windows) and fast eMMC reads (ADMA2) work on the device. The GPU, Wi-Fi, Bluetooth, audio, camera and a real battery gauge do not: rendering is done in software on the CPU. No Apple binaries are distributed in this repository.
 
 The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-69/ios-lavender) (branch `lavender`), itself derived from [`dipa-studio/ios-sweet`](https://github.com/dipa-studio/ios-sweet). This repository documents the lavender-specific bring-up, the patches that made eMMC writes reliable, and the current state of the device.
 
@@ -26,21 +26,56 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 | Panel orientation | **Works** | The lock screen is portrait and upright, filling the 1080×2340 panel (`docs/images/lock-screen.jpg`) |
 | Physical buttons | **Works** | Patch `0201`: Power/Volume Up/Volume Down through the SDM660 SPMI arbiter v3, delivered to iOS HID |
 | USB network | **Works** | Patches `0200`, `0210`–`0213`: DWC3 + QUSB2 bring-up, CDC-NCM (Windows UsbNcm, macOS, Linux), `ping 192.168.7.2`, live kernel log on UDP 5140 (`sweetusb=2`; `tools/usbnet-windows.ps1`). Root SSH over the link (dropbear, `docs/SSH.md`) |
-| Touch | **Works (slow)** | Novatek NT36672A on QUP1 I2C (bit-banged): patches `0193`–`0208`, `0230`. Taps and swipes reach iOS: setup, home screen and app icons respond. Each read still takes ~14 ms (12 bytes) to ~65 ms (full frame): see ROADMAP |
+| Touch | **Works** | Novatek NT36672A on QUP1 I2C (bit-banged): patches `0193`–`0208`, `0230`, `0231`, `0234`. Taps, icons and the swipe-up unlock work; ~249 frames per 10 s with 0 I2C errors (~14 ms per read). `0234` makes SweetHID use the real 1080×2340 panel (it assumed 2400, which shifted touches and hid the bottom edge). Kernel must be built by the CI (Xcode 15): a local Xcode 16.2 build read garbage firmware info and left touch disabled |
+| eMMC reads by ADMA2 | **Works** | Patches `0232`, `0233`: the SDCC v5 core has no SDMA, only ADMA2. Cold reads ~465 KB/s → ~16 MB/s, boot to the lock screen ~23 min → ~2–3 min. Writes stay PIO |
+| Wallpaper: Color | **Works (preview)** | The wallpaper gallery opens and shows a preview for Color (see Wallpapers below) |
 
 ## What does not work yet
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| GPU acceleration | **Missing** | Adreno 512 has no driver; an empty `IOAcceleratorES` keeps QuartzCore from waiting, rendering is software |
+| GPU acceleration | **Missing** | Adreno 512 has no driver and there is no Metal device (`MTLCreateSystemDefaultDevice()` returns nil). An empty `IOAcceleratorES` keeps QuartzCore from waiting; everything is drawn by CoreAnimation's software renderer (`CA::OGL::SW`), see Performance |
 | Camera | **Missing** | Camera button and camera stack are not implemented |
-| Wi-Fi / Bluetooth | **Missing** | No Wi-Fi firmware/driver; `bluetoothd` respawns without hardware |
-| Audio | **Missing** | No audio codec driver |
+| Wi-Fi | **Missing** | No Wi-Fi driver or firmware for the WCN3990 radio; the network is USB only |
+| Bluetooth | **Missing** | No Bluetooth transport; `bluetoothd` respawns in a loop without hardware |
+| Audio | **Missing** | No audio codec / speaker / microphone driver: no sound in or out |
+| Wallpapers (most) | **Partial** | Only simple wallpapers (Color) render a preview; ones that need Metal such as Astronomy are very slow or fail. See Wallpapers |
 | Battery / charging UI | **Partial** | Static battery fallback (`100%`, 4200 mV); no gauge driver |
 | Lock screen colours | **To verify** | The date, clock and status bar render red/orange on the lock screen photo: wallpaper tint or a framebuffer colour-format issue, not checked yet |
 | RTC / date | **Partial** | Patch `0220` reads the PM660 RTC. Its raw count is not Unix time (Android keeps its own offset), so each phone needs `sweetrtcoff=` measured once in TWRP (`docs/BOOT.md`); without it the calendar starts at the shim build time (`sweetrtc`). Lock screen with the real date not checked yet |
 | `preboot` / data volume | **Partial** | `libignition` cannot find the preboot volume; the boot continues unsealed |
-| Second boot / boot time | **Partial** | The second boot runs without the data migration (the `DataMigration` plist works), but still takes ~18 min to the lock screen |
+| Second boot / boot time | **Works** | The second boot runs without the data migration and reaches the lock screen in ~2–3 min since the ADMA2 read path (`0233`); it was ~18–23 min with PIO reads |
+
+## Performance
+
+Everything on screen is drawn by the CPU: QuartzCore falls back to its software OpenGL renderer (`CA::OGL::SW`) because there is no GPU. Measured on the device (4× Cortex-A73, panel 1080×2340):
+
+| Metric | Value | How |
+| --- | --- | --- |
+| Frames presented | median **~13 fps** over a boot, peaks of **30–34 fps** while animating | `SWEET FB: swap` lines in the live log, counted per second (patch `0215`) |
+| Panel refresh | **30 Hz** | `sweetfb_hz=30`; the framebuffer copies at most one frame every other 60 Hz vsync |
+| `backboardd` CPU | **~150–170 %** (of 400 %) on the idle lock screen | `ps` cumulative CPU time over 60 s windows; sampled with `spindump` |
+| Where the time goes | `CA::OGL::SW::scan_convert`, `image_sampler`, `tex_color_matrix_4x4_bias`, `tex_multiply_color`, `fill_round_rect` | `spindump` of `backboardd`, symbolised against the 20H392 dyld shared cache |
+| eMMC read | **~16 MB/s** (was ~465 KB/s) | ADMA2 read path, `0233` |
+| Touch | **~25 frames/s** read from the controller, 0 I2C errors | `WHYRED TOUCH: 10s frames` log line |
+| Boot to lock screen | **~2–3 min** (was ~23 min) | live log timestamps |
+
+What was tried to lower the compositor load, and what it did:
+
+- Notifying the vsync to CoreAnimation at the panel rate instead of a fixed 60 Hz (`0235`): the idle lock-screen CPU stayed at ~150–170 %; not a measurable gain at idle, it only caps animations at 30 fps.
+- *Reduce Transparency* and *Reduce Motion* in Settings: no change in idle CPU (still ~149 %).
+- Freezing PosterBoard (the wallpaper process): no change, so the wallpaper is not what keeps the compositor busy. The idle lock screen still presents 7–16 frames per second; the process that drives them is not identified yet.
+
+A real fix needs a GPU path (a kernel driver for the Adreno 512 plus a Metal-compatible layer, which does not exist for iOS) or a much cheaper software compositing path. Neither is started.
+
+## Wallpapers
+
+Opening *Settings → Wallpaper → Add New Wallpaper* used to show a blank gallery and abort PosterBoard. Findings:
+
+- `lsd` could not load `/System/Library/xpc/extensions.plist` (AMFI is missing), so PlugInKit saw no extensions. The precompiled catalog was set aside so iOS scans natively, the LaunchServices databases were rebuilt once, and an extension-point definition for `com.apple.posterkit.provider` was added. `GradientPosterExtension` and `CollectionsPoster` now register and start.
+- PosterBoard then aborted in `-[PBFHomeScreenPreviewImageBuilder _imageForView:]`: it renders the preview with Metal (`MTLCreateSystemDefaultDevice()` → `newCommandQueue`) and put a nil queue into an `NSDictionary`. A small replacement for that method (`tools/posterboard-preview.m`) avoids the crash.
+- Result: the gallery opens and **Color shows a preview**. Applying it to the home and lock screens is still to be verified.
+- **Astronomy** and other wallpapers that link Metal still fail: `AegirPoster` and `CollectionsPoster` are terminated with `extension check-in timeout` and the system gets very slow. This needs a Metal device, so it is the same limit as the GPU.
 
 ## Milestones
 
@@ -49,6 +84,9 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 - **2026-11-19 — Code-signing bring-up.** The CS/RW boot arguments let `launchd`, `xpcproxy`, `cfprefsd`, `powerd`, `distnoted`, `watchdogd` and `SpringBoard` run.
 - **2026-11-19 — eMMC writes fixed.** Patch `0192` waits for DAT0 + `TRAN`/`READY_FOR_DATA` (CMD13) after every PIO write. Before it, CMD24/CMD25 timed out and the log ring stayed empty; after it, the ring flushed 100+ KiB with zero write timeouts.
 - **2026-11-21 — eMMC reads by ADMA2.** The SDCC v5 core has no SDMA, only ADMA2. Patch `0233` moves reads to ADMA2 (PIO fallback, writes stay PIO): cold reads go from ~465 KB/s to ~16 MB/s and the boot to the lock screen from ~23 min to ~2 min.
+- **2026-11-21 — Touch fixed for good.** Local kernel builds read garbage firmware info from the Novatek (`nvt fwinfo invalid`) and left touch disabled; kernels from the CI (Xcode 15) do not. `0234` makes SweetHID use the real 1080×2340 panel, so the swipe from the bottom edge now unlocks and icon taps land where they should.
+- **2026-11-21 — Wallpaper gallery opens.** Extension points and providers registered, the Metal-less preview crash worked around: Color shows a preview. Astronomy is still slow.
+- **2026-11-21 — Compositor profile.** `spindump` shows the CPU going into CoreAnimation's software renderer; `0235` aligns the vsync notification with the panel rate. No idle gain.
 - **2026-11-19 — Four Gold cores.** `cpus=4` brings up all four A73 cores; the A53 Silver cores stay parked because they cannot run 16 KiB pages.
 - **2026-11-19 — First-boot data migration.** A fresh root image needs one long `DataMigration` pass. The image now carries `com.apple.DataMigration.plist` with `LastSystemVersion = 20H392`, so subsequent boots should skip it.
 - **2026-11-19 — iOS 16 lock screen.** The device reached the iOS 16.7.16 lock screen: `Wednesday, December 31`, `4:37`, the camera shortcut and the home indicator are visible. This is the current state.
