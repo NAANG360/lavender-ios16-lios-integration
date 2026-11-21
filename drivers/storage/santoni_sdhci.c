@@ -5029,6 +5029,11 @@ santoni_sdhci_init(void)
 		extern int lavender_wlan_probe(void);
 		(void)lavender_wlan_probe();
 	}
+	/* 0244: boot-arg sweetmodem=N, MSS clocks and QDSP6/RMB state. */
+	{
+		extern int lavender_modem_probe(void);
+		(void)lavender_modem_probe();
+	}
 #endif
 	return 0;
 }
