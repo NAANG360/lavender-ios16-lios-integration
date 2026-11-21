@@ -173,21 +173,29 @@ jobs:
         if: failure()
         run: |
           # Job logs need a token; the annotations of a failed check are
-          # public. Republish the compiler errors (or the tail) so the
-          # failure can be read back without one.
+          # public. The dxb build warns about its own patches (TrustCache,
+          # skywalk_sonoma, ...) on every run; those are not this build's
+          # errors. Keep only real compiler/linker errors.
           if [ ! -f build.log ]; then
             echo "::error::no build.log (build never started)"
             exit 0
           fi
-          {
-            grep -nE 'error:|fatal error:|ld: |Undefined symbols|undefined symbol' build.log \
-              | grep -v 'warning:' | tail -30 | cut -c1-400
-            echo "--- last log lines ---"
-            tail -20 build.log | cut -c1-400
-          } > /tmp/build-errors.txt || true
+          grep -nE 'error:|fatal error:|ld: |Undefined symbols|undefined symbol' build.log \
+            | grep -vE 'Skipping patch|patch does not apply|already exists in working directory|patch failed|dxb/patches' \
+            | tail -9 | cut -c1-400 > /tmp/build-errors.txt || true
           while IFS= read -r line; do
             printf '::error::%s\n' "${line//'%'/'%25'}"
           done < /tmp/build-errors.txt
+
+      - name: Republish build log tail
+        if: failure()
+        run: |
+          if [ ! -f build.log ]; then
+            exit 0
+          fi
+          tail -8 build.log | cut -c1-400 | while IFS= read -r line; do
+            printf '::error::%s\n' "${line//'%'/'%25'}"
+          done
 
       - name: Fail if a storage or board patch was skipped
         if: always()
