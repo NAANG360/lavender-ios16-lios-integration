@@ -35,6 +35,7 @@
 | `0235-lavender-vsync-at-panel-rate.patch` | The vsync notification to CoreAnimation follows `sweetfb_hz` (every `fFlushTicks` ticks) instead of a fixed 60 Hz, so the CPU compositor (`CA::OGL::SW`, ~150 % of backboardd) no longer draws frames the panel never shows | Pending device test |
 | `0236-lavender-gpu-probe.patch` | Adreno 512 bring-up ladder (`bsd/dev/lavender_gpu.c`), off unless `lavgpu=N`: 1 reads GCC/GPUCC state, 2 votes the GPU BIMC branches, 3 CX GDSC, 4 GX GDSC + core clocks + reads the RBBM/CP block. Each step is announced 2 s before the access. Project: `lavender-metal` | Pending device test |
 | `0237-lavender-gpu-gx-root-clock.patch` | lavgpu step 4: force the GFX3D RCG root on (XO) before the GX GDSC, 3 s poll, collapse GX again on failure. Run `lavgpu=4` of 0236 left the GX GDSC at `08222000` (never PWR_ON): the DT marks it `force-enable-root-clk` | Pending device test |
+| `0238-lavender-gpu-ldo-bhs.patch` | lavgpu: read-only dump of the GFX LDO/head-switch block (`0x0506e000`) in step 1; step 4 puts it in BHS mode under GDSC control before the GX GDSC (restored on failure). With 0237 alone the GX still stayed at `08222000` | Pending device test |
 
 New lavender work takes the next free number from `0200` up.
 
