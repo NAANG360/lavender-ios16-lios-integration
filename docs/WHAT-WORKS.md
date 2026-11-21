@@ -1,6 +1,6 @@
 # What works / what does not
 
-This is the honest state of the lavender port as of **2026-11-19**. The device boots to the iOS 16.7.16 lock screen; it is not a usable phone.
+This is the honest state of the lavender port as of **2026-11-21**. The device boots to the iOS 16.7.16 lock screen and home screen, opens Settings and shows the first-run Siri screen; it is not a usable phone.
 
 ## Works
 
@@ -20,11 +20,16 @@ This is the honest state of the lavender port as of **2026-11-19**. The device b
 | `backboardd` | Works | IOKit matches, surfaces, display on, swaps |
 | `SpringBoard` | Works | Execs, opens `AppleKeyStore`, `IOPMrootDomain` |
 | iOS boot UI | Works | Apple logo, progress bar, lock screen |
+| SpringBoard home screen | Works | Grid with app icons, dock, notification badge and the App Library pill (`docs/images/home-screen.png`); both widget slots keep the `Esperando…` placeholder |
+| Settings | Works | The whole Settings list renders and scrolls (`docs/images/settings.jpg`) |
+| Siri setup screen | UI only | The first-run Siri screen appears (`docs/images/siri-setup.jpg`); no microphone or speaker behind it |
+| Skylight self-tests | Works | The boot console prints the window server's software blit tests (`sk_copy64_*`, `sk_copy32_*`, `sk_zero_*`, `memcmp`) as `PASSED` under the Apple logo (`docs/images/boot-self-tests.jpg`) |
+| Touch | Works (slow) | Novatek NT36672A, bit-banged I2C (patches `0193`–`0208`, `0230`): taps and swipes reach iOS; ~14 ms per idle read, up to ~65 ms per full frame |
 | Code signing bring-up | Works | `cs_enforcement_disable=1`, `unentitled_ios_sim_launch=1`, `launchd_unsecure_cache=1` |
 | AMFI / AKS stubs | Partial | Built-in AMFI policy, `AppleKeyStore` user client; `WrapKey` (selector 10) returns `kIOReturnUnsupported` |
 | Buttons | Works | Patch `0201`: Power (PM660 KPDPWR), Volume Down (RESIN), Volume Up (PM660L GPIO7) over the SPMI arbiter v3, `SWEET HID: key … (1 clients)` |
 | USB network | Works | Patches `0200`, `0210`–`0213`: QUSB2 PHY power-up and UTMI mux release, Linux DWC3 bring-up, CDC-NCM. Windows 11 binds UsbNcm (426 Mbps link), `ping 192.168.7.2` 70/70, live kernel log on UDP 5140 |
-| Panel orientation | Works | Portrait and upright, full 1080×2340 panel (`docs/images/lock-screen.jpg`) |
+| Panel orientation | Works | Portrait and upright, full 1080×2340 panel (`docs/images/lock-screen.jpg`, `docs/images/home-screen.png`) |
 | Persistent log | Works | 4 MiB `SANTONILOG1` ring on SYSTEM; `sweet-log.py` decodes it |
 | DataMigration skip | Partial | `com.apple.DataMigration.plist` with `LastSystemVersion=20H392`; first boot still migrates, later boots should skip |
 | Battery fallback | Partial | Static 100 %, 4200 mV; no gauge |
@@ -34,20 +39,20 @@ This is the honest state of the lavender port as of **2026-11-19**. The device b
 
 | Subsystem | Status | Why / next step |
 | --- | --- | --- |
-| Touch | Works (slow) | Novatek NT36672A, bit-banged I2C (patches `0193`–`0208`, `0230`): taps and swipes reach iOS; ~14 ms per idle read, up to ~65 ms per full frame |
 | Camera button | N/A | Lavender has no camera key; the DTB `camera_*` entries are reference-board leftovers |
 | GPU acceleration | Missing | Adreno 512 has no driver; empty `IOAcceleratorES` keeps QuartzCore from waiting 30 s; rendering is software |
-| PosterBoard / lock-screen poster | Intermittent crash | In some boots `PosterBoard` traps in `-[PBFPosterExtensionDataStore _stateLock_setupSwitcherConfigurationForFirstTime]` (symbolicated, see TROUBLESHOOTING); a 47-minute boot with touches (kernel `0206`, live log) never crashed it, so the lock screen itself is not frozen by it. `sweetnopb=1` (patch `0217`) isolates the process |
+| PosterBoard / wallpaper | Color preview works | Native catalog scan, explicit private extension-point registration and a CPU preview fallback brought up the gallery. Applying a Color wallpaper is still unverified. Astronomy and Collections hit extension check-in timeouts. See [Troubleshooting](TROUBLESHOOTING.md#add-new-wallpaper-is-empty-or-stays-on-a-loader) |
 | Camera | Missing | Camera stack and button are not implemented |
 | Wi-Fi | Missing | No WCN3990 firmware/driver |
 | Bluetooth | Missing | `bluetoothd` respawns without hardware |
 | Audio | Missing | No codec driver |
 | Battery gauge | Missing | Static fallback only |
-| Lock screen colours | To verify | Date, clock and status bar render red/orange in the lock screen photo: wallpaper tint or framebuffer colour format, not checked |
-| RTC | Partial | Shows 1969/December 31 because the PM660 RTC is not read; `sweetrtc` (patch `0216`) supplies a build-time base and the clock advances from it |
+| Home screen widgets | Missing | Both slots stay on `Esperando…`: the WidgetKit extension never delivers a first timeline |
+| Screen colours | To verify | Date, clock and status bar render red/orange on the lock screen and on the home screen: wallpaper tint or framebuffer colour format, not checked |
+| RTC | Partial | Patch `0220` reads the PM660 RTC and removes the 30 s `IORTC` wait. Its raw count is not Unix time: each unit needs `sweetrtcoff=` measured once in TWRP, and the home-screen clock still shows `mié 4 feb 05:28` |
 | `preboot` | Partial | `libignition: failed to lookup preboot: 25`; boot continues unsealed |
 | Data volume | Partial | `mount: data volume missing, but not required in env: 0`; `/private/var` is on the root HFSX |
-| Second boot | Partial | Runs without the data migration (`sweetlog-usbkeys-0202`), but takes ~18 min to the lock screen surfaces |
+| Second boot | Partial | Runs without the data migration and reaches the lock screen in ~2–3 min with the ADMA2 read path (`0233`); it was ~18 min with PIO reads |
 | Daily driver | No | This is a research bring-up |
 
 ## Boot milestones observed in the log
@@ -67,7 +72,27 @@ SWEET FB: swap 1..6
 exec SpringBoard
 ```
 
-The lock screen is the current end state. There is no panic and no eMMC timeout in the successful boot.
+The lock screen, then the home screen, are the current end state. There is no panic and no eMMC timeout in the successful boot.
+
+## Boot console before the lock screen (userland)
+
+The framebuffer console also prints the window server's own self-tests while the Apple logo and the progress bar are still on screen (photo: `docs/images/boot-self-tests.jpg`):
+
+```
+Skylight: running Skylight self-tests
+Skylight: sk_copy64_8 ... PASSED
+Skylight: sk_copy32_8 ... PASSED
+Skylight: sk_copy64_16 ... PASSED
+...
+Skylight: sk_copy64_64x ... PASSED
+Skylight: sk_copy64_4x ... PASSED
+Skylight: sk_zero_16 ... PASSED
+Skylight: sk_zero_128 ... PASSED
+Skylight: memcmp mask ... PASSED
+sys_memregion: calling kmInit
+```
+
+The `sk_copy*`/`sk_zero*` names are Skylight's software copy and clear blit paths: the same CPU path that later draws SpringBoard on the panel.
 
 ## Known-good artifacts (not distributed here)
 

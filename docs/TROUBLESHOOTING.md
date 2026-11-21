@@ -98,6 +98,49 @@ The trap is the function's entry assertion `_stateLock_switcherConfiguration == 
 **What to do:** the poster process dies with the lock transition, so start by isolating it: boot with `sweetnopb=1` (patch `0217`), which makes its exec fail with EPERM and logs `SWEET EXEC: refusing PosterBoard`. If the lock screen then stays alive, the gate is PosterBoard's service; options are resetting its data store (delete `/var/mobile/Library/PosterBoard` from a writable root), or the userland workarounds bergamota uses for the same HFS-without-data-protection problem (`refs/bergamota/tools/sweetnet/sweetfp.m`, `sweetpb26.m`: swizzle the poster data-store checks instead of fixing the filesystem).
 
 
+## Add New Wallpaper is empty or stays on a loader
+
+Verified on Lavender with iOS 16.7.16 (20H392) on 2026-11-21. The physical iPhone X on the same
+build, inspected through Xcode 16.2, launched `com.apple.WallpaperKit.CollectionsPoster` and
+loaded the default wallpaper `7400`.
+
+1. **Check the plugin records and the extension point.** `lsd` reported `Unable to find AMFI`
+   while opening `/System/Library/xpc/extensions.plist`. Moving the precompiled catalog aside
+   enabled native enumeration. After backing up and reseeding both LaunchServices stores,
+   `lsd` logged `registered app extension` for `GradientPosterExtension` and `CollectionsPoster`.
+   The records survived a shim change. A subsequent direct query still returned `-10814` for
+   `com.apple.posterkit.provider`, even as `mobile`. Adding
+   `/System/Library/ExtensionKit/ExtensionPoints/com.apple.posterkit.provider.appexpt` using the
+   original `NSExtensionSDK` definition from `PosterKit.framework/Info.plist` resolved that query
+   for iOS (platform 2). The definition retains the private extension point and the required
+   `com.apple.runningboard.posterkit.host` entitlement. After restarting `lsd`, `pkd`, and
+   PosterBoard, both providers started. The trial changes were made over SSH on the iOS root in
+   `userdata`. The explicit declaration was added after the shim change.
+
+2. **Check the Home Screen preview separately.** The `SIGABRT` from
+   `-[PBFHomeScreenPreviewImageBuilder _imageForView:]` was an Objective-C exception when creating
+   an options dictionary with a nil `kCARendererMetalCommandQueue`. A probe confirmed that Metal
+   returned neither a device nor a queue on Lavender. The
+   [CPU preview fallback](../tools/posterboard-preview.m) renders the view's layer at its original
+   scale when a Metal queue is unavailable. It generated valid previews through the actual
+   preview method in a standalone process and was then installed in the running image.
+   Opening the gallery after the changes produced a **Color** preview, with no recurrence of that
+   `SIGABRT` in the observed log. Applying the color and verifying the lock and Home screens
+   remain pending.
+
+3. **Check extension startup if the loader persists.** The live log shows both Astronomy
+   (`AegirPoster`) and `CollectionsPoster` repeatedly terminated with
+   `extension check-in timeout`. The framebuffer continued to swap and touch events continued
+   to arrive. The stock Astronomy executable links Metal. The cause of its check-in timeout
+   has not yet been isolated, and the CPU fallback covers the PosterBoard preview method.
+
+The live trial preserved the original catalog as `extensions.plist.wallpaper-trial-stock` in
+`/System/Library/xpc`, the previous LaunchServices stores in
+`/private/var/tmp/lavender-ls-stock.Sp5KpG`, and the original PosterBoard executable in
+`/private/var/tmp/posterboard-live-trial.cVrax8/PosterBoard.stock`. The scoped extension-point
+declaration and CPU preview library were installed on the Redmi after the initial catalog-only
+trial image was built.
+
 ## Touch does not work
 
 **Cause:** the Novatek NT36672 driver is not implemented. The series has probe/stub patches (`0184`–`0188`) but no finished Novatek protocol, no PM660 LDO11 power-up and no `SweetHIDTouch` integration.

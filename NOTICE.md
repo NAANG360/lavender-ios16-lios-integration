@@ -21,9 +21,9 @@ This repository contains original documentation, scripts and lavender patches, p
 - **LLVM/clang/LLD** — kernel and shim toolchain.
 - **Docker** — reproducible shim build.
 
-## Photo
+## Screenshots and photos
 
-`docs/images/lock-screen.jpg` is a photo of the project author's Redmi Note 7 running the iOS 16.7.16 lock screen. It is included as evidence of the milestone.
+`docs/images/lock-screen.jpg`, `settings.jpg`, `siri-setup.jpg` and `boot-self-tests.jpg` are photos of the project author's Redmi Note 7 running the iOS 16.7.16 userland, and `docs/images/home-screen.png` is a screenshot captured from that device's display. They are included as evidence of the milestones.
 
 ## Original work
 

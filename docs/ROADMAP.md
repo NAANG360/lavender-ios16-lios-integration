@@ -1,13 +1,12 @@
 # Roadmap
 
-The port boots to the iOS 16.7.16 lock screen. The next work is ordered by what blocks actual use.
+The port boots to the iOS 16.7.16 lock screen and home screen; touch, buttons and USB already work. The next work is ordered by what blocks actual use.
 
 ## P0 — make the device usable
 
-1. **Novatek NT36672 touch**
-   - QUP1 I2C at `0x0c175000`, address `0x62`, IRQ GPIO 67, reset GPIO 66, VDDIO PM660 LDO11.
-   - Implement the Novatek protocol, power-up sequence and `SweetHIDTouch` events.
-   - Verify with the probe patches `0184`–`0188` and a raw I2C scan before writing the driver.
+1. **Novatek NT36672 touch**: done (patches `0193`–`0208`, `0230`, `0231`, `0234`).
+   - Taps, icon taps and the swipe-up unlock work on the device; 0 I2C errors and ~14 ms per idle read.
+   - Next: move from the bit-banged I2C to the QUP1 hardware block, and cut the per-frame `delay()` cost.
    - Check the panel variant: Synaptics uses `0x20`; this unit is Novatek.
 
 2. **PM660/PM660L buttons**: done (patch `0201`, confirmed on the device).
@@ -22,8 +21,8 @@ The port boots to the iOS 16.7.16 lock screen. The next work is ordered by what 
    - Windows has no CDC-ECM driver: add an NCM function, or use macOS/Linux as the host.
    - This gives `adb`/live logs and makes recovery much easier.
 
-4. **Lock screen colours** (to verify)
-   - The lock screen is upright (an earlier "rotated 90°" note was wrong), but the date, clock and status bar render red/orange in the photo.
+4. **Screen colours** (to verify)
+   - The lock screen and the home screen are upright (an earlier "rotated 90°" note was wrong), but the date, clock and status bar render red/orange in both.
    - Check whether that is the iOS 16 wallpaper tint or a framebuffer pixel-format (channel order/alpha) issue before changing anything.
    - Touch coordinates map to the panel as it is: native portrait 1080×2340.
 

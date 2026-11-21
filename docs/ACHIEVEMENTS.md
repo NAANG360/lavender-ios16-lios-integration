@@ -65,6 +65,14 @@ All dates are 2026-11-19 unless noted. This is the lavender-specific delta on to
 - The lock screen is upright; the clock shows 1969/December 31 (RTC unset), and touch/buttons/USB/GPU were still missing at this milestone. (An earlier note called the lock screen "rotated 90°"; the photo shows it is not.)
 - The second boot/persistence check is pending because the physical buttons do not work.
 
+## Home screen, Settings and Siri setup (2026-11-21)
+
+- **Home screen on the panel.** A device screenshot (`docs/images/home-screen.png`) shows SpringBoard's home screen: the app grid with Fotos, App Store and Configuración, the dock with Teléfono, Safari and Mensajes (with an unread badge) and the App Library pill (`Buscar`). The two widget slots stay on `Esperando…` because the WidgetKit extension never delivers a first timeline.
+- **Settings opens.** The whole Settings list renders and scrolls on the device: Sonidos, Concentración, Tiempo de uso, General, Centro de control, Pantalla y brillo, Pantalla de inicio, Accesibilidad, Fondo de pantalla, Siri y búsqueda, Código, SOS de emergencia, Notificaciones de exposición, Batería and Privacidad y seguridad (`docs/images/settings.jpg`).
+- **First-run Siri screen.** The setup flow reaches the Siri page with `Activar Siri` / `Ahora no` (`docs/images/siri-setup.jpg`). There is no microphone or speaker behind it, so this is UI only.
+- **Skylight self-tests pass at boot.** While the Apple logo and progress bar are on screen, the userland Skylight window server runs its software blit self-tests (`sk_copy64_8` … `sk_copy64_64x`, `sk_copy32_*`, `sk_zero_16` … `sk_zero_128`, `memcmp`) and every one prints `PASSED`, ending at `sys_memregion: calling kmInit` (`docs/images/boot-self-tests.jpg`). This is the CPU path that draws the UI.
+- **Colour and clock caveats.** The status bar still renders as a red/orange band and the home-screen clock reads `mié 4 feb 05:28`, not the real date: the screen-colour and RTC items remain open.
+
 ## Rejected variants
 
 - `0192b` with a 1 s `CMD6_BUSY_TIMEOUT_NS` wait: CI run `44636855966`, kernel `2a6b542159cf5f314d907edddc7f7af96311e89c6cfcd11a24af7dcb56130d8b`. It stopped at `cc_fips_test`, earlier than the 30 s version. The 30 s timeout is the working one.

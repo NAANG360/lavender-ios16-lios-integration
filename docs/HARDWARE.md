@@ -39,13 +39,13 @@ The 8-core / 4 KiB route is a separate research line (see `docs/ROADMAP.md`); it
 - 1080×2340 panel, 4320-byte stride, `a8r8g8b8`.
 - ABL leaves a continuously scanned splash framebuffer at `0x9d400000`; MDSS/DSI keep scanning it after handoff.
 - The kernel publishes an AppleCLCD/IOSurface path and composes in software. There is no Adreno GPU driver.
-- The lock screen is portrait and upright on the panel (see `docs/images/lock-screen.jpg`). The date, clock and status bar render red/orange in that photo; whether that is the wallpaper tint or a framebuffer colour-format issue has not been checked.
+- The lock screen is portrait and upright on the panel (see `docs/images/lock-screen.jpg`), and the home screen uses the same orientation (`docs/images/home-screen.png`). The date, clock and status bar render red/orange on both; whether that is the wallpaper tint or a framebuffer colour-format issue has not been checked.
 
 ## Touch
 
 - **Novatek NT36672** on QUP1 I2C, address `0x62` on this unit.
 - IRQ GPIO 67, reset GPIO 66, VDDIO from PM660 LDO11.
-- The series has probe/stub patches (`0184`–`0188`) but no finished Novatek driver. Touch does not work in iOS.
+- The Novatek NT36672A is driven by patches `0193`–`0208`, `0230`, `0231` and `0234` over a bit-banged QUP1 I2C (the hardware I2C block is not brought up yet). It works on the device: taps, icon taps and the swipe-up unlock, with 0 I2C errors and ~14 ms per idle read.
 - The alternative panel variant uses Synaptics at `0x20`; do not assume it.
 
 ## Buttons and PMIC
@@ -53,7 +53,7 @@ The 8-core / 4 KiB route is a separate research line (see `docs/ROADMAP.md`); it
 - PM660 / PM660L PMIC.
 - SPMI PMIC arbiter **v3** (DTB `qcom,spmi@800f000`): core `0x0800f000`, chnls `0x08400000`, obsrvr `0x09400000`, intr `0x0a400000`, cnfg `0x0800a000`, ee 0. PM660 is SID 0; PM660L is SID 2/3.
 - Keys (DTB): Power = PM660 PON KPDPWR, Volume Down = PM660 PON RESIN, Volume Up = PM660L GPIO7 (`gpio@c600`, active low). Lavender has no camera key; the DTB `camera_focus`/`camera_snapshot` entries (TLMM 64/113) come from the reference board.
-- Patch `0201` polls these keys read-only and feeds `SWEET HID`. It is host-tested; the device boot is pending. Until it is confirmed, a stuck iOS boot can only be recovered with a PMIC long-press (Power 20–30 s), a key combo at boot, or battery drain.
+- Patch `0201` polls these keys read-only and feeds `SWEET HID`; Power, Volume Up and Volume Down reach iOS on the device. A stuck iOS boot can still be recovered with a PMIC long-press (Power 20–30 s), a key combo at boot, or battery drain.
 
 ## USB
 

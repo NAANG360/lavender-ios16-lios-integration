@@ -2,11 +2,22 @@
 
 A non-commercial research port of **XNU 8796** (Darwin 22 / iOS 16) and the **iPhone X (D22AP) iOS 16.7.16 userland** to the **Redmi Note 7** (`lavender`, Qualcomm SDM660 / Snapdragon 660).
 
-![iOS 16 lock screen on the Redmi Note 7](docs/images/lock-screen.jpg)
+![iOS 16 home screen on the Redmi Note 7](docs/images/home-screen.png)
 
-> **Status: boots to the iOS 16.7.16 lock screen and home screen in ~2–3 minutes.** This is an experimental bring-up, not a daily driver. Touch (taps and swipes), physical buttons, USB networking (CDC-NCM: ping, SSH and a live kernel log from Windows) and fast eMMC reads (ADMA2) work on the device. The GPU, Wi-Fi, Bluetooth, audio, camera and a real battery gauge do not: rendering is done in software on the CPU. No Apple binaries are distributed in this repository.
+> **Status: boots to the iOS 16.7.16 lock screen and home screen in ~2–3 minutes.** This is an experimental bring-up, not a daily driver. The home screen renders icons, the dock and badges, Settings opens and the first-run Siri screen appears; touch (taps and swipes), physical buttons, USB networking (CDC-NCM: ping, SSH and a live kernel log from Windows) and fast eMMC reads (ADMA2) work on the device. The GPU, Wi-Fi, Bluetooth, audio, camera and a real battery gauge do not: rendering is done in software on the CPU. No Apple binaries are distributed in this repository.
 
 The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLpHa-Git-69/ios-lavender) (branch `lavender`), itself derived from [`dipa-studio/ios-sweet`](https://github.com/dipa-studio/ios-sweet). This repository documents the lavender-specific bring-up, the patches that made eMMC writes reliable, and the current state of the device.
+
+## Progress
+
+| Home screen | Settings | Siri setup |
+| --- | --- | --- |
+| <img src="docs/images/home-screen.png" width="230" alt="iOS 16 home screen on the Redmi Note 7"> | <img src="docs/images/settings.jpg" width="230" alt="Settings app on the Redmi Note 7"> | <img src="docs/images/siri-setup.jpg" width="230" alt="Siri setup screen on the Redmi Note 7"> |
+| SpringBoard's grid: app icons, dock, notification badge and the App Library pill. The two widget slots are still on `Esperando…`, waiting for their first timeline. | The whole Settings list renders and scrolls. | The first-run Siri screen appears. Without a microphone or speaker, Siri itself cannot work. |
+
+<img src="docs/images/boot-self-tests.jpg" width="230" alt="Boot console with Skylight self-tests on the Redmi Note 7">
+
+Under the Apple logo and progress bar, the userland **Skylight** window server runs its software blit self-tests: `sk_copy64_8` through `sk_copy64_64x`, `sk_copy32_*`, `sk_zero_16` to `sk_zero_128` and a `memcmp` test all print `PASSED`. That is the software path that draws every frame on this port.
 
 ## What works
 
@@ -20,10 +31,14 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 | Framebuffer / AppleCLCD | **Works** | 1080×2340, stride 4320, software composition via IOSurface |
 | `launchd` / daemons | **Works** | `launchd`, `backboardd`, `SpringBoard`, `securityd`, `keybagd`, `usermanagerd`, etc. |
 | iOS GUI | **Works** | Apple logo, progress bar and the iOS 16 lock screen |
+| Home screen | **Works** | SpringBoard grid with app icons, the dock, a notification badge and the App Library pill (`docs/images/home-screen.png`); the two widget slots stay on `Esperando…` (see the widgets row below) |
+| Settings | **Works** | The whole Settings list renders and scrolls (`docs/images/settings.jpg`) |
+| Siri setup | **UI only** | The first-run Siri screen appears (`docs/images/siri-setup.jpg`); without a microphone or speaker Siri cannot answer |
+| Skylight self-tests | **Pass** | The boot console prints the window server's software blit self-tests as `PASSED` (`docs/images/boot-self-tests.jpg`) |
 | Code signing bring-up | **Works** | `cs_enforcement_disable=1`, `unentitled_ios_sim_launch=1`, `launchd_unsecure_cache=1` |
 | Persistent kernel log | **Works** | 4 MiB `SANTONILOG1` ring on the SYSTEM partition |
 | 4 Gold cores | **Works** | `cpus=4`; `SWEET CPU: requested=4 selected=4` |
-| Panel orientation | **Works** | The lock screen is portrait and upright, filling the 1080×2340 panel (`docs/images/lock-screen.jpg`) |
+| Panel orientation | **Works** | The lock screen and the home screen are portrait and upright, filling the 1080×2340 panel (`docs/images/lock-screen.jpg`, `docs/images/home-screen.png`) |
 | Physical buttons | **Works** | Patch `0201`: Power/Volume Up/Volume Down through the SDM660 SPMI arbiter v3, delivered to iOS HID |
 | USB network | **Works** | Patches `0200`, `0210`–`0213`: DWC3 + QUSB2 bring-up, CDC-NCM (Windows UsbNcm, macOS, Linux), `ping 192.168.7.2`, live kernel log on UDP 5140 (`sweetusb=2`; `tools/usbnet-windows.ps1`). Root SSH over the link (dropbear, `docs/SSH.md`) |
 | Touch | **Works** | Novatek NT36672A on QUP1 I2C (bit-banged): patches `0193`–`0208`, `0230`, `0231`, `0234`. Taps, icons and the swipe-up unlock work; ~249 frames per 10 s with 0 I2C errors (~14 ms per read). `0234` makes SweetHID use the real 1080×2340 panel (it assumed 2400, which shifted touches and hid the bottom edge). Kernel must be built by the CI (Xcode 15): a local Xcode 16.2 build read garbage firmware info and left touch disabled |
@@ -41,8 +56,9 @@ The port is built on top of [`aLpHa-Git-69/ios-lavender`](https://github.com/aLp
 | Audio | **Missing** | No audio codec / speaker / microphone driver: no sound in or out |
 | Wallpapers (most) | **Partial** | Only simple wallpapers (Color) render a preview; ones that need Metal such as Astronomy are very slow or fail. See Wallpapers |
 | Battery / charging UI | **Partial** | Static battery fallback (`100%`, 4200 mV); no gauge driver |
-| Lock screen colours | **To verify** | The date, clock and status bar render red/orange on the lock screen photo: wallpaper tint or a framebuffer colour-format issue, not checked yet |
-| RTC / date | **Partial** | Patch `0220` reads the PM660 RTC. Its raw count is not Unix time (Android keeps its own offset), so each phone needs `sweetrtcoff=` measured once in TWRP (`docs/BOOT.md`); without it the calendar starts at the shim build time (`sweetrtc`). Lock screen with the real date not checked yet |
+| Home screen widgets | **Missing** | Both slots keep the `Esperando…` placeholder: the WidgetKit extension never hands over a first timeline. Not investigated yet; it sits in the same extension-hosting area as the wallpaper providers |
+| Screen colours | **To verify** | The date, clock and status bar render red/orange on the lock screen and home screen: wallpaper tint or a framebuffer colour-format issue, not checked yet |
+| RTC / date | **Partial** | Patch `0220` reads the PM660 RTC. Its raw count is not Unix time (Android keeps its own offset), so each phone needs `sweetrtcoff=` measured once in TWRP (`docs/BOOT.md`); the home-screen clock still reads `mié 4 feb 05:28` instead of the real date, so this unit's offset is still to be set |
 | `preboot` / data volume | **Partial** | `libignition` cannot find the preboot volume; the boot continues unsealed |
 | Second boot / boot time | **Works** | The second boot runs without the data migration and reaches the lock screen in ~2–3 min since the ADMA2 read path (`0233`); it was ~18–23 min with PIO reads |
 
@@ -79,6 +95,7 @@ Opening *Settings → Wallpaper → Add New Wallpaper* used to show a blank gall
 
 ## Milestones
 
+- **2026-11-21 — Home screen, Settings and Siri setup on screen.** A device screenshot shows SpringBoard's home screen with app icons, the dock, a notification badge and the App Library pill; the two widget slots wait on `Esperando…`. Settings opens with its full list and the first-run Siri screen appears. The boot console shows Skylight's software blit self-tests passing before the lock screen. Evidence: `docs/images/home-screen.png`, `settings.jpg`, `siri-setup.jpg`, `boot-self-tests.jpg`.
 - **2026-11-19 — Phase 0 safety net.** Verified stock fastboot ROM, TWRP, 15 partition backups + GPT, and a complete restore path.
 - **2026-11-19 — First XNU boot.** Kernel built for `LAVENDER` in GitHub Actions; the first boot reached `launchd` but died with `CS_KILLED`.
 - **2026-11-19 — Code-signing bring-up.** The CS/RW boot arguments let `launchd`, `xpcproxy`, `cfprefsd`, `powerd`, `distnoted`, `watchdogd` and `SpringBoard` run.
@@ -153,7 +170,7 @@ The exact commands, hashes and caveats are in [`docs/BUILD.md`](docs/BUILD.md).
 README.md                 this file
 README.es.md              Spanish summary
 docs/                     hardware, build, boot, achievements, roadmap, legal
-  images/lock-screen.jpg  the current milestone
+  images/                 lock screen, home screen, Settings, Siri setup and boot self-tests
 xnu/patches/              the complete XNU patch series (0001-0192 base, 0200+ lavender)
 shim/                     the boot shim (Android boot image -> XNU)
 resources/lavender_dtb.bin the board DTB the ABL accepts
