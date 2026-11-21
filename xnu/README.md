@@ -29,6 +29,8 @@
 
 | `0230-lavender-touch-spin-timing.patch` | Touch bit-bang I2C with real timing: `delay()` never spins on this port (CPUs registered with `powergate_latency` 0), so every half bit slept until a timer interrupt and a frame took seconds. Spin on the timebase (`sweetouchus=`), adaptive frame length/rate, timing self-test and 10 s stats | **On device: touch works** (home screen, icons), 0 I2C errors, ~14 ms idle read, up to ~65 ms full frame |
 | `0231-lavender-touch-partial-frames.patch` | Read only up to the highest active slot (12 bytes for one finger instead of 65), idle poll 25 ms (`sweetouchidle=`), line-rise stats | Host syntax-checked; not yet run on the device |
+| `0232-lavender-sdhci-dma-diag.patch` | Read-only SDHCI report at attach (CAPABILITIES, HOST_VERSION, clock/DLL/ADMA registers, bounce buffer address). Finding: this SDCC v5 core has **no SDMA** (CAPS bit 22), only ADMA2 (bit 19) with 64-bit addressing, which is why every SDMA attempt ended in `ADMAERR`. Optional timed tests behind `sweetemmc_speed=1` / `sweetemmc_dmatest=1` (off: they hold the controller lock and stall boot) | **On device** |
+| `0233-lavender-sdhci-adma2-read.patch` | ADMA2 **read** path into the bounce buffer (32 KiB descriptors, cache maintenance, PIO fallback, off after 3 failures). Writes stay PIO (0192). On by default after a PIO-vs-ADMA2 self-test at two places of the root; `sweetemmc_dma=0` keeps PIO | **On device**: cold read 465 KB/s (PIO) -> ~16 MB/s; boot to the lock screen ~23 min -> ~2 min; dyld cache files hash-identical to the host under 4 concurrent readers |
 
 New lavender work takes the next free number from `0200` up.
 

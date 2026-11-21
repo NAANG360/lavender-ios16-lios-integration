@@ -440,6 +440,9 @@ static struct {
 	vm_offset_t gcc;                        /* GCC sdcc1_apps RCG page */
 	vm_offset_t dma;                        /* kernel VA of the bounce buffer */
 	uint64_t dma_pa;
+	vm_offset_t adma;                       /* 0233: ADMA2 descriptor page */
+	uint64_t adma_pa;
+	bool adma_on;                           /* 0233: CAPS ADMA2 + self-test, not sweetemmc_dma=0 */
 	uint64_t last_cmd_ns;                   /* duration of the last command */
 	char part[64];                          /* GPT partition name */
 	uint64_t first_block, nblocks;          /* root partition, 512-byte sectors */
@@ -1270,6 +1273,194 @@ sdhci_read_sdma(uint8_t index, uint32_t arg, uint32_t count, uint64_t pa)
 }
 
 /*
+ * 0233: ADMA2 read path. The 0232 report shows this SDCC v5 core advertises
+ * ADMA2 (CAPS bit 19) and 64-bit addressing (bit 28) but NOT SDMA (bit 22):
+ * that is why every SDMA attempt (sdhci_read_sdma, above) ended in ADMAERR.
+ * PIO moves a dword per three uncached MMIO reads (~465 KB/s cold on a bus
+ * that can do ~25 MB/s); ADMA2 lets the controller fill the bounce buffer.
+ *
+ * Reads only, and only into the bounce buffer, under the same lock as PIO.
+ * Writes stay PIO (0192). On by default once the card is enumerated, CAPS
+ * says ADMA2 and the PIO-vs-ADMA2 self-test passes; boot-arg sweetemmc_dma=0
+ * keeps PIO. Any error falls back to PIO for that request and three failures
+ * in a row switch the path off.
+ */
+#define SDHCI_ADMA_SYS_ADDR     0x58
+#define SDHCI_ADMA_SYS_ADDR_HI  0x5c
+#define SDHCI_CTRL_ADMA2_32     0x10u           /* HOST_CONTROL[4:3] = 2 */
+#define ADMA_ATTR_VALID         0x0001u
+#define ADMA_ATTR_END           0x0002u
+#define ADMA_ATTR_TRAN          0x0020u         /* Act = 10: transfer data */
+#define ADMA_CHUNK              32768u          /* explicit length, < 64 KiB */
+#define ADMA_TABLE_BYTES        4096u
+#define ADMA_FAIL_LIMIT         3u
+
+struct santoni_adma2_desc {
+	uint16_t attr;
+	uint16_t len;
+	uint32_t addr;
+} __attribute__((packed));
+
+static uint64_t santoni_adma_reads, santoni_adma_bytes, santoni_adma_ns;
+static uint32_t santoni_adma_fails;
+static bool santoni_adma_fail_logged;
+
+static int
+sdhci_read_adma(uint8_t index, uint32_t arg, uint32_t count, uint64_t pa)
+{
+	volatile struct santoni_adma2_desc *d =
+	    (volatile struct santoni_adma2_desc *)se.adma;
+	uint32_t bytes = count * SDHCI_BLOCK;
+	uint32_t n = 0, off = 0;
+	uint16_t tr_mode;
+	uint8_t ctrl;
+	uint32_t r1 = 0;
+	uint64_t start, deadline, ns;
+	int error;
+
+	if (!se.adma_on || count == 0 || count > BOUNCE_SIZE / SDHCI_BLOCK ||
+	    pa + bytes > 0x100000000ull) {
+		return EINVAL;
+	}
+	if (index == 18 && count == 1) {
+		index = 17;
+	} else if (index == 17 && count > 1) {
+		index = 18;
+	}
+	error = sdhci_prepare_pio();
+	if (error) {
+		return error;
+	}
+
+	while (off < bytes) {
+		uint32_t chunk = MIN(bytes - off, ADMA_CHUNK);
+
+		d[n].attr = (uint16_t)(ADMA_ATTR_VALID | ADMA_ATTR_TRAN |
+		    ((off + chunk == bytes) ? ADMA_ATTR_END : 0));
+		d[n].len = (uint16_t)chunk;
+		d[n].addr = (uint32_t)(pa + off);
+		n++;
+		off += chunk;
+	}
+	/* Descriptors and the destination must be in memory, not in the cache. */
+	flush_dcache64((addr64_t)se.adma_pa, n * sizeof(*d), TRUE);
+	flush_dcache64((addr64_t)pa, bytes, TRUE);
+	__asm__ volatile ("dsb sy" ::: "memory");
+
+	hc_wr(SDHCI_ADMA_SYS_ADDR, (uint32_t)se.adma_pa);
+	hc_wr(SDHCI_ADMA_SYS_ADDR_HI, (uint32_t)(se.adma_pa >> 32));
+	ctrl = hc_rd8(SDHCI_HOST_CONTROL);
+	hc_wr8(SDHCI_HOST_CONTROL,
+	    (uint8_t)((ctrl & ~SDHCI_CTRL_DMA_MASK) | SDHCI_CTRL_ADMA2_32));
+	sdhci_set_block(count);
+
+	tr_mode = (uint16_t)(SDHCI_TRNS_DMA | SDHCI_TRNS_READ |
+	    SDHCI_TRNS_BLK_CNT_EN);
+	if (index == 18) {
+		tr_mode |= SDHCI_TRNS_MULTI | SDHCI_TRNS_AUTO_CMD12;
+	}
+	santoni_data_moved = false;
+	santoni_sdma_active = false;
+	start = mach_absolute_time();
+	error = sdhci_cmd(index, arg, tr_mode,
+	    SDHCI_CMD_RESP_SHORT | SDHCI_CMD_CRC | SDHCI_CMD_INDEX |
+	    SDHCI_CMD_DATA, &r1);
+	if (!error) {
+		nanoseconds_to_deadline(DATA_TIMEOUT_NS +
+		    (uint64_t)count * 20ull * NSEC_PER_MSEC, &deadline);
+		for (;;) {
+			uint32_t st = hc_rd(SDHCI_INT_STATUS);
+
+			if (st & SDHCI_INT_ERRORS) {
+				sdhci_data_failure("ADMA2 block", st);
+				hc_wr(SDHCI_INT_STATUS, st);
+				error = EIO;
+				break;
+			}
+			if (st & SDHCI_INT_TC) {
+				hc_wr(SDHCI_INT_STATUS, SDHCI_INT_TC);
+				break;
+			}
+			if (mach_absolute_time() >= deadline) {
+				sdhci_data_failure("ADMA2 block", st);
+				error = ETIMEDOUT;
+				break;
+			}
+		}
+	}
+	/* Back to the PIO selection so every other path sees HOST_CONTROL as before. */
+	hc_wr8(SDHCI_HOST_CONTROL, (uint8_t)(ctrl & ~SDHCI_CTRL_DMA_MASK));
+	if (error) {
+		printf("WHYRED SDHCI: ADMA2 read of %u blocks failed (%d): "
+		    "ADMA_ERR 0x%08x, ADMA_ADDR 0x%08x%08x, INT_STATUS 0x%08x\n",
+		    count, error, hc_rd(0x54), hc_rd(0x5c), hc_rd(0x58),
+		    hc_rd(SDHCI_INT_STATUS));
+		sdhci_recover(index == 18);
+		return error;
+	}
+	flush_dcache64((addr64_t)pa, bytes, TRUE);
+	ns = mach_absolute_time() - start;
+	absolutetime_to_nanoseconds(ns, &ns);
+	santoni_adma_reads++;
+	santoni_adma_bytes += bytes;
+	santoni_adma_ns += ns ? ns : 1;
+	if (santoni_adma_reads <= 3 || (santoni_adma_reads % 2048) == 0) {
+		printf("WHYRED SDHCI: ADMA2 read #%llu: %u blocks in %llu us; "
+		    "total %llu KiB in %llu ms = %llu KiB/s\n",
+		    (unsigned long long)santoni_adma_reads, count,
+		    (unsigned long long)(ns / 1000),
+		    (unsigned long long)(santoni_adma_bytes >> 10),
+		    (unsigned long long)(santoni_adma_ns / 1000000),
+		    (unsigned long long)((santoni_adma_bytes >> 10) *
+		    1000000000ull / santoni_adma_ns));
+	}
+	return 0;
+}
+
+/*
+ * 0233 safety net: before the filesystem trusts ADMA2, read the same 128 KiB
+ * both ways at two places of the root partition and compare. Anything but a
+ * byte-identical result switches the path off for good. Caller holds the lock.
+ */
+#define ADMA_TEST_BLOCKS        256u
+#define ADMA_TEST_DMA_OFF       0x80000u
+
+static void
+sdhci_adma_selftest(void)
+{
+	char *pio_buf = (char *)(se.dma + DMA_BOUNCE);
+	char *dma_buf = pio_buf + ADMA_TEST_DMA_OFF;
+	uint64_t dma_pa = se.dma_pa + DMA_BOUNCE + ADMA_TEST_DMA_OFF;
+	uint32_t bytes = ADMA_TEST_BLOCKS * SDHCI_BLOCK;
+	uint64_t lbas[2] = { se.first_block, se.first_block + 100000 };
+
+	for (int i = 0; i < 2; i++) {
+		int perr, derr;
+		bool same;
+
+		if (lbas[i] + ADMA_TEST_BLOCKS > se.first_block + se.nblocks) {
+			continue;
+		}
+		memset(dma_buf, 0x5a, bytes);
+		perr = sdhci_read_pio_once(18, (uint32_t)lbas[i],
+		    ADMA_TEST_BLOCKS, pio_buf);
+		derr = sdhci_read_adma(18, (uint32_t)lbas[i], ADMA_TEST_BLOCKS,
+		    dma_pa);
+		same = !perr && !derr && memcmp(pio_buf, dma_buf, bytes) == 0;
+		printf("WHYRED SDHCI: ADMA2 self-test at LBA 0x%llx: PIO %d, "
+		    "ADMA2 %d, data %s\n", (unsigned long long)lbas[i], perr,
+		    derr, same ? "IDENTICAL" : "DIFFERENT");
+		if (!same) {
+			se.adma_on = false;
+			printf("WHYRED SDHCI: ADMA2 read path left OFF "
+			    "(self-test failed)\n");
+			return;
+		}
+	}
+	printf("WHYRED SDHCI: ADMA2 read path ON\n");
+}
+
+/*
  * Read count 512-byte blocks: PIO first (no cache or address setup), then
  * the same transfer through SDMA if the controller never raises the buffer
  * interrupt. Both engines end at the same bounce buffer, so the caller's
@@ -1283,6 +1474,23 @@ sdhci_read_pio(uint8_t index, uint32_t arg, uint32_t count, void *buf)
 	uint64_t pa;
 	int error;
 
+	if (se.adma_on && buf == (void *)(se.dma + DMA_BOUNCE)) {
+		error = sdhci_read_adma(index, arg, count, se.dma_pa + DMA_BOUNCE);
+		if (!error) {
+			santoni_adma_fails = 0;
+			return 0;
+		}
+		if (!santoni_adma_fail_logged) {
+			santoni_adma_fail_logged = true;
+			printf("WHYRED SDHCI: %s: ADMA2 failed (%d), falling back "
+			    "to PIO\n", tag, error);
+		}
+		if (++santoni_adma_fails >= ADMA_FAIL_LIMIT) {
+			se.adma_on = false;
+			printf("WHYRED SDHCI: ADMA2 read path switched off after %u "
+			    "failures\n", santoni_adma_fails);
+		}
+	}
 	error = sdhci_read_pio_once(index, arg, count, buf);
 	if (!error || buf != (void *)(se.dma + DMA_BOUNCE)) {
 		return error;
@@ -4482,6 +4690,182 @@ static const struct cdevsw santoni_sdhci_cdevsw = {
 	.d_type       = D_DISK,
 };
 
+/*
+ * 0232: read-only diagnostics for an eventual DMA read path. Nothing here
+ * changes what the driver does for normal I/O. It prints (1) what the host
+ * controller advertises (SDHCI 3.0 CAPABILITIES: SDMA bit 22, ADMA2 bit 19,
+ * 64-bit system bus bit 28 - not 19/22 as ADMA2/64-bit), (2) the PIO read
+ * throughput as the filesystem sees it, and (3) with boot-arg
+ * sweetemmc_dmatest=1, one SDMA read of a few blocks compared byte for byte
+ * with the PIO read of the same blocks. Reads only; the card is never
+ * written.
+ */
+#define SDHCI_CAPABILITIES      0x40
+#define SDHCI_CAPABILITIES1     0x44
+#define SDHCI_ADMA_ERR          0x54
+#define SDHCI_ADMA_ADDR         0x58
+#if defined(ARM64_BOARD_CONFIG_LAVENDER)
+#define CORE_VENDOR_SPEC_CAPS0  0x21c
+#else
+#define CORE_VENDOR_SPEC_CAPS0  0x11c
+#endif
+#define SANTONI_DIAG_BIG_BLOCKS 256u            /* 128 KiB */
+#define SANTONI_DIAG_SMALL_BLOCKS 8u            /* 4 KiB, one page */
+#define SANTONI_DIAG_SMALL_COUNT 16u
+#define SANTONI_DIAG_ABORT_NS   (3ull * NSEC_PER_SEC)
+#define SANTONI_DIAG_SDMA_OFF   0x80000u        /* second half of the bounce */
+
+static uint64_t
+sdhci_diag_ns(uint64_t start)
+{
+	uint64_t ns;
+
+	absolutetime_to_nanoseconds(mach_absolute_time() - start, &ns);
+	return ns ? ns : 1;
+}
+
+static void
+sdhci_diag_caps(void)
+{
+	uint32_t caps = hc_rd(SDHCI_CAPABILITIES);
+	uint32_t caps1 = hc_rd(SDHCI_CAPABILITIES1);
+
+	printf("WHYRED SDHCI: dma-diag: HOST_VERSION 0x%04x CAPS 0x%08x "
+	    "CAPS1 0x%08x VENDOR_CAPS0 0x%08x\n", hc_rd16(SDHCI_HOST_VERSION),
+	    caps, caps1, hc_rd(CORE_VENDOR_SPEC_CAPS0));
+	printf("WHYRED SDHCI: dma-diag: SDMA %s, ADMA2 %s, 64-bit bus %s, "
+	    "8-bit %s, HS %s, base clock %u MHz, max block %u; "
+	    "SDR50 %s SDR104 %s DDR50 %s\n",
+	    (caps & (1u << 22)) ? "yes" : "no",
+	    (caps & (1u << 19)) ? "yes" : "no",
+	    (caps & (1u << 28)) ? "yes" : "no",
+	    (caps & (1u << 18)) ? "yes" : "no",
+	    (caps & (1u << 21)) ? "yes" : "no",
+	    (caps >> 8) & 0xff, 512u << ((caps >> 16) & 3),
+	    (caps1 & 1u) ? "yes" : "no", (caps1 & 2u) ? "yes" : "no",
+	    (caps1 & 4u) ? "yes" : "no");
+	printf("WHYRED SDHCI: dma-diag: HOST_CONTROL 0x%02x HOST_CONTROL2 "
+	    "0x%04x CLOCK_CONTROL 0x%04x VENDOR_SPEC 0x%08x DLL_CONFIG "
+	    "0x%08x ADMA_ERR 0x%08x ADMA_ADDR 0x%08x%08x\n",
+	    hc_rd8(SDHCI_HOST_CONTROL), hc_rd16(SDHCI_HOST_CONTROL2),
+	    hc_rd16(SDHCI_CLOCK_CONTROL), hc_rd(CORE_VENDOR_SPEC),
+	    hc_rd(CORE_DLL_CONFIG), hc_rd(SDHCI_ADMA_ERR),
+	    hc_rd(SDHCI_ADMA_ADDR + 4), hc_rd(SDHCI_ADMA_ADDR));
+	printf("WHYRED SDHCI: dma-diag: card %s, bounce buffer pa 0x%llx "
+	    "(%s 4 GiB), size %u KiB\n",
+	    se.enumerated ? "enumerated" : "NOT enumerated",
+	    (unsigned long long)se.dma_pa,
+	    (se.dma_pa + BOUNCE_SIZE <= 0x100000000ull) ? "below" : "NOT below",
+	    BOUNCE_SIZE >> 10);
+}
+
+static void
+sdhci_diag_pio_speed(void)
+{
+	char *bounce = (char *)(se.dma + DMA_BOUNCE);
+	uint64_t start, big_ns, small_ns;
+	int error;
+
+	santoni_sdhci_bounce_lock();
+	start = mach_absolute_time();
+	error = santoni_sdhci_read_blocks(se.first_block,
+	    SANTONI_DIAG_BIG_BLOCKS, bounce);
+	big_ns = sdhci_diag_ns(start);
+	if (error) {
+		printf("WHYRED SDHCI: dma-diag: PIO 128 KiB read failed (%d)\n",
+		    error);
+		lck_mtx_unlock(&santoni_sdhci_lock);
+		return;
+	}
+	if (big_ns > SANTONI_DIAG_ABORT_NS) {
+		printf("WHYRED SDHCI: dma-diag: 128 KiB took %llu us; skipping "
+		    "the small-read test\n", (unsigned long long)(big_ns / 1000));
+		lck_mtx_unlock(&santoni_sdhci_lock);
+		return;
+	}
+	start = mach_absolute_time();
+	for (uint32_t i = 0; i < SANTONI_DIAG_SMALL_COUNT && !error; i++) {
+		error = santoni_sdhci_read_blocks(se.first_block +
+		    (uint64_t)i * SANTONI_DIAG_SMALL_BLOCKS,
+		    SANTONI_DIAG_SMALL_BLOCKS, bounce);
+	}
+	small_ns = sdhci_diag_ns(start);
+	lck_mtx_unlock(&santoni_sdhci_lock);
+	printf("WHYRED SDHCI: dma-diag: PIO CMD18 128 KiB: %llu us = %llu KiB/s; "
+	    "%u x 4 KiB: %llu us = %llu KiB/s%s\n",
+	    (unsigned long long)(big_ns / 1000),
+	    (unsigned long long)(128ull * 1000000000ull / big_ns),
+	    SANTONI_DIAG_SMALL_COUNT, (unsigned long long)(small_ns / 1000),
+	    (unsigned long long)(4ull * SANTONI_DIAG_SMALL_COUNT *
+	    1000000000ull / small_ns), error ? " (error)" : "");
+}
+
+/* One SDMA read of count blocks vs the PIO read of the same blocks. */
+static void
+sdhci_diag_sdma_compare(uint32_t count)
+{
+	char *pio_buf = (char *)(se.dma + DMA_BOUNCE);
+	char *dma_buf = pio_buf + SANTONI_DIAG_SDMA_OFF;
+	uint64_t dma_pa = se.dma_pa + DMA_BOUNCE + SANTONI_DIAG_SDMA_OFF;
+	uint32_t bytes = count * SDHCI_BLOCK;
+	uint64_t start, pio_ns, dma_ns;
+	int perr, derr;
+
+	santoni_sdhci_bounce_lock();
+	/* SDMA is the DMA select value 0; PIO/SDMA never share a transfer. */
+	hc_wr8(SDHCI_HOST_CONTROL,
+	    (uint8_t)(hc_rd8(SDHCI_HOST_CONTROL) & ~SDHCI_CTRL_DMA_MASK));
+	memset(pio_buf, 0xa5, bytes);
+	memset(dma_buf, 0x5a, bytes);
+	flush_dcache64((addr64_t)se.dma_pa + DMA_BOUNCE, bytes, TRUE);
+	flush_dcache64((addr64_t)dma_pa, bytes, TRUE);
+
+	start = mach_absolute_time();
+	perr = sdhci_read_pio_once(count == 1 ? 17 : 18, (uint32_t)se.first_block,
+	    count, pio_buf);
+	pio_ns = sdhci_diag_ns(start);
+	flush_dcache64((addr64_t)se.dma_pa + DMA_BOUNCE, bytes, TRUE);
+
+	start = mach_absolute_time();
+	derr = sdhci_read_sdma(count == 1 ? 17 : 18, (uint32_t)se.first_block,
+	    count, dma_pa);
+	dma_ns = sdhci_diag_ns(start);
+	flush_dcache64((addr64_t)dma_pa, bytes, TRUE);
+
+	printf("WHYRED SDHCI: dma-diag: SDMA test %u block(s): PIO %d %llu us, "
+	    "SDMA %d %llu us, data %s, INT_STATUS 0x%08x ADMA_ERR 0x%08x "
+	    "SDMA_ADDR 0x%08x\n", count, perr,
+	    (unsigned long long)(pio_ns / 1000), derr,
+	    (unsigned long long)(dma_ns / 1000),
+	    (!perr && !derr) ? (memcmp(pio_buf, dma_buf, bytes) == 0 ?
+	    "IDENTICAL" : "DIFFERENT") : "not compared",
+	    hc_rd(SDHCI_INT_STATUS), hc_rd(SDHCI_ADMA_ERR),
+	    hc_rd(SDHCI_SDMA_ADDR));
+	lck_mtx_unlock(&santoni_sdhci_lock);
+}
+
+static void
+sdhci_dma_diag_tests(void)
+{
+	int speed = 0, test = 0;
+
+	/*
+	 * Both tests hold the controller lock, which the log flusher needs: a
+	 * slow read here silences the log and holds up the USB bring-up behind
+	 * it. They are therefore opt-in; the default boot only prints the
+	 * register report from sdhci_diag_caps().
+	 */
+	if (PE_parse_boot_argn("sweetemmc_speed", &speed, sizeof(speed)) &&
+	    speed) {
+		sdhci_diag_pio_speed();
+	}
+	if (PE_parse_boot_argn("sweetemmc_dmatest", &test, sizeof(test)) &&
+	    test) {
+		sdhci_diag_sdma_compare(1);
+		sdhci_diag_sdma_compare(SANTONI_DIAG_SMALL_BLOCKS);
+	}
+}
+
 static char santoni_fail_text[192];
 
 static int
@@ -4533,6 +4917,24 @@ santoni_sdhci_init(void)
 		return ENOMEM;
 	}
 	se.dma_pa = ptoa_64(pn);
+	{
+		int want = 1;           /* default on; sweetemmc_dma=0 turns it off */
+
+		(void)PE_parse_boot_argn("sweetemmc_dma", &want, sizeof(want));
+		if (want &&
+		    kmem_alloc_contig(kernel_map, &se.adma, ADMA_TABLE_BYTES,
+		    PAGE_MASK, 0, 0, KMA_DATA | KMA_ZERO | KMA_PERMANENT,
+		    VM_KERN_MEMORY_IOKIT) == KERN_SUCCESS) {
+			ppnum_t apn = pmap_find_phys(kernel_pmap,
+			    (addr64_t)se.adma);
+
+			se.adma_pa = apn ? ptoa_64(apn) : 0;
+			if (se.adma_pa == 0 ||
+			    se.adma_pa + ADMA_TABLE_BYTES > 0x100000000ull) {
+				se.adma = 0;
+			}
+		}
+	}
 
 	lck_mtx_lock(&santoni_sdhci_lock);
 	stage = "take-over";
@@ -4544,6 +4946,14 @@ santoni_sdhci_init(void)
 	if (!error) {
 		stage = "GPT partition";
 		error = santoni_sdhci_find_partition(se.part);
+	}
+	/* 0233: the GPT was read with PIO; later reads may use ADMA2. */
+	if (!error && se.adma && (hc_rd(SDHCI_CAPABILITIES) & (1u << 19))) {
+		se.adma_on = true;
+		printf("WHYRED SDHCI: ADMA2 read path armed (descriptors at "
+		    "pa 0x%llx); self-test next\n",
+		    (unsigned long long)se.adma_pa);
+		sdhci_adma_selftest();
 	}
 	lck_mtx_unlock(&santoni_sdhci_lock);
 	if (error) {
@@ -4595,8 +5005,13 @@ santoni_sdhci_init(void)
 	    (unsigned long long)(se.nblocks * SDHCI_BLOCK >> 20),
 	    se.writable ? "writable (emmcrw=1)" : "read-only");
 
+	/* 0232: register-only report; no transfer can stall the boot here. */
+	sdhci_diag_caps();
+
 	/* Private console log area on SYSTEM, if the partition is there. */
 	santoni_log_start();
+	/* 0232: the timed reads run after the log flusher is up. */
+	sdhci_dma_diag_tests();
 	/* After the log: the WHYRED FB lines belong in the SYSTEM ring. */
 	santoni_fb_test();
 #if defined(ARM64_BOARD_CONFIG_WHYRED) || defined(ARM64_BOARD_CONFIG_LAVENDER)
