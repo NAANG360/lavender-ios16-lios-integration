@@ -38,6 +38,7 @@
 | `0238-lavender-gpu-ldo-bhs.patch` | lavgpu: read-only dump of the GFX LDO/head-switch block (`0x0506e000`) in step 1; step 4 puts it in BHS mode under GDSC control before the GX GDSC (restored on failure). With 0237 alone the GX still stayed at `08222000` | Pending device test |
 | `0239-lavender-gpu-gx-reset-clamp.patch` | lavgpu step 4: before clearing the GX GDSC's SW_COLLAPSE, pulse the GX block reset (GPUCC+0x1090) and the AON/GMEM reset and release the GMEM clamp (GPUCC+0x130), the order the vendor GDSC driver uses. 0237 and 0238 left the GX at `08222000`; the LDO block was already in BHS state (`pwrswitch_ctrl 80000038`) | Pending device test |
 | `0240-lavender-gpu-scm-probe.patch` | lavgpu=5: SCM questions, no state change: INFO is_call_available(PIL IS_SUPPORTED) and PIL IS_SUPPORTED for PAS id 13 (GPU zap), 4 (modem, reference) and 99 (contrast). Same SMC64 convention as 0113. Runs after the GX power-up of 0239 (`lavgpu=4`: GX on at 11 ms, GPU block read, no hang) | Pending device test |
+| `0241-lavender-gpu-zap-load.patch` | lavgpu=6: loads the GPU zap shader through TrustZone PIL (PAS 13): reads `a512_zap.mdt`/`.b02` from `/usr/share/firmware/lavender/gpu/`, INIT_IMAGE, MEM_SETUP, copy, AUTH_AND_RESET, each announced and stopped at the first non-zero ret; re-reads SECVID_TRUST_CNTL afterwards. Also logs `a530_pm4.fw` size | Pending device test |
 
 New lavender work takes the next free number from `0200` up.
 
