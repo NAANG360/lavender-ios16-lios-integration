@@ -148,7 +148,7 @@ struct smp2p_entry {
 } __attribute__((packed));
 
 static vm_offset_t gcc, q6ss, smmu, codec, pinctrl, mclk, avtimer, smem, apcs;
-static bool lpass_on;
+static int lpass_on;
 static int audio_chan;
 
 static inline uint32_t
@@ -186,7 +186,7 @@ audio_gcc(void)
 	audio_announce("read the GCC LPASS ADSP vote and power domain (read only)");
 	cbcr = audio_rd(gcc, GCC_LPASS_SMMU_CBCR);
 	gdscr = audio_rd(gcc, GCC_LPASS_ADSP_GDSCR);
-	lpass_on = (gdscr & GDSC_PWR_ON) && !(gdscr & GDSC_SW_COLLAPSE);
+	lpass_on = ((gdscr & GDSC_PWR_ON) != 0) && ((gdscr & GDSC_SW_COLLAPSE) == 0);
 	printf("SWEET AUDIO: gcc lpass_smmu_cbcr %08x (en %u, %s)\n", cbcr,
 	    cbcr & CBCR_EN, (cbcr & CBCR_OFF) ? "OFF" : "on");
 	printf("SWEET AUDIO: gcc lpass_adsp_gdscr %08x (pwr_on %u, collapse %u)\n",

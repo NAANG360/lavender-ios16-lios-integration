@@ -12,7 +12,7 @@ index 1a3e9f6..a11d10a 100644
  bsd/dev/sweet_spmi.c			standard
 diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
 new file mode 100644
-index 0000000..650c5b4
+index 0000000..d104853
 --- /dev/null
 +++ b/bsd/dev/lavender_audio.c
 @@ -0,0 +1,509 @@
@@ -166,7 +166,7 @@ index 0000000..650c5b4
 +} __attribute__((packed));
 +
 +static vm_offset_t gcc, q6ss, smmu, codec, pinctrl, mclk, avtimer, smem, apcs;
-+static bool lpass_on;
++static int lpass_on;
 +static int audio_chan;
 +
 +static inline uint32_t
@@ -204,7 +204,7 @@ index 0000000..650c5b4
 +	audio_announce("read the GCC LPASS ADSP vote and power domain (read only)");
 +	cbcr = audio_rd(gcc, GCC_LPASS_SMMU_CBCR);
 +	gdscr = audio_rd(gcc, GCC_LPASS_ADSP_GDSCR);
-+	lpass_on = (gdscr & GDSC_PWR_ON) && !(gdscr & GDSC_SW_COLLAPSE);
++	lpass_on = ((gdscr & GDSC_PWR_ON) != 0) && ((gdscr & GDSC_SW_COLLAPSE) == 0);
 +	printf("SWEET AUDIO: gcc lpass_smmu_cbcr %08x (en %u, %s)\n", cbcr,
 +	    cbcr & CBCR_EN, (cbcr & CBCR_OFF) ? "OFF" : "on");
 +	printf("SWEET AUDIO: gcc lpass_adsp_gdscr %08x (pwr_on %u, collapse %u)\n",
