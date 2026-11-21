@@ -634,6 +634,8 @@ step6_zap(void)
 #define SMMU_PA                 0x05040000u
 #define SMMU_SIZE               0x10000u
 
+static vm_offset_t smmu_va;
+
 static void
 step7_smmu(void)
 {
@@ -670,12 +672,490 @@ step7_smmu(void)
 		printf("LAVGPU: context banks are outside the mapped block\n");
 		return;
 	}
-	lav_announce("step 7: READ context banks 0..3");
-	for (uint32_t cb = 0; cb < 4; cb++) {
+	lav_announce("step 7: READ context banks 0 and 4 (1..3 hang the reader)");
+	for (uint32_t cb = 0; cb < 5; cb += 4) {
 		vm_offset_t b = smmu + cbbase + cb * pgsz;
 		printf("LAVGPU: CB%u SCTLR %08x TTBR0 %08x%08x TCR %08x FSR %08x "
 		    "FAR %08x\n", cb, rd(b, 0x0), rd(b, 0x24), rd(b, 0x20),
 		    rd(b, 0x30), rd(b, 0x58), rd(b, 0x60));
+	}
+	smmu_va = smmu;
+}
+
+/*
+ * Step 8: let the GPU's stream (SID 0) through the SMMU untranslated, so the
+ * CP can fetch microcode and the ring by physical address (S2CR type BYPASS).
+ * SMR0 matches only ID 0; no other master uses this SMMU's stream 0.
+ */
+static void
+step8_smmu_bypass(void)
+{
+	uint32_t smr, s2cr;
+
+	if (smmu_va == 0) {
+		return;
+	}
+	lav_announce("step 8: WRITE SMR0 (valid, ID 0) and S2CR0 (bypass)");
+	wr(smmu_va, 0x800, (1u << 31) | 0u);
+	wr(smmu_va, 0xc00, (1u << 16) | 0u);
+	smr = rd(smmu_va, 0x800);
+	s2cr = rd(smmu_va, 0xc00);
+	printf("LAVGPU: SMMU SMR0 now %08x S2CR0 now %08x (%s)\n", smr, s2cr,
+	    (smr == ((1u << 31)) && ((s2cr >> 16) & 3) == 1) ? "bypass stuck" :
+	    "did not take");
+}
+
+/*
+ * Step 9: the SMMU turned the bypass request into "fault", so translate: give
+ * context bank 4 (gfx3d_user, DT gpu-offset 0x48000) a stage 1 AArch64 table
+ * that maps the first 4 GB 1:1 (four 1 GB blocks, normal write-back memory),
+ * and point stream 0 at it. The CP then fetches microcode and the ring by
+ * physical address through the table. Register layout: ARM SMMUv2.
+ */
+#define SMMU_CB                 4u
+#define SMMU_CBAR(cb)           (0x1000u + 4u * (cb))
+#define SMMU_CBA2R(cb)          (0x8000u + 4u * (cb))
+#define CB_SCTLR                0x00u
+#define CB_TCR2                 0x10u
+#define CB_TTBR0                0x20u
+#define CB_TCR                  0x30u
+#define CB_MAIR0                0x38u
+#define CB_FSR                  0x58u
+#define CB_TLBIALL              0x618u
+#define CB_TLBSYNC              0x7f0u
+#define CB_TLBSTATUS            0x7f4u
+
+static uint64_t smmu_pt_pa;
+
+static void
+step9_smmu_s1(void)
+{
+	vm_offset_t pt = 0, cb;
+	uint64_t pa = 0;
+	uint32_t pgsz = 0x1000, cbbase = 0x4000;
+
+	if (smmu_va == 0) {
+		return;
+	}
+	if (lav_alloc(0x1000, PAGE_MASK, &pt, &pa)) {
+		printf("LAVGPU: no page for the SMMU table\n");
+		return;
+	}
+	for (unsigned i = 0; i < 4; i++) {
+		/* 1 GB block: VA = PA, AF, inner shareable, attr index 0, valid */
+		((volatile uint64_t *)pt)[i] = ((uint64_t)i << 30) | (1ull << 10) |
+		    (3ull << 8) | 1ull;
+	}
+	flush_dcache64((addr64_t)pa, 0x1000, TRUE);
+	smmu_pt_pa = pa;
+	cb = smmu_va + cbbase + SMMU_CB * pgsz;
+
+	lav_announce("step 9: WRITE context bank 4 (stage 1, identity table)");
+	wr(smmu_va, SMMU_CBA2R(SMMU_CB), 1u);                  /* VA64 */
+	wr(smmu_va, SMMU_CBAR(SMMU_CB), 1u << 16);             /* S1 translate, S2 bypass */
+	wr(cb, CB_TCR2, 0x1u);                                 /* 36-bit output */
+	wr(cb, CB_TCR, 25u | (1u << 8) | (1u << 10) | (3u << 12)); /* 39-bit VA, 4K, WB, inner */
+	wr(cb, CB_MAIR0, 0xffu);
+	wr(cb, CB_TTBR0, (uint32_t)pa);
+	wr(cb, CB_TTBR0 + 4, (uint32_t)(pa >> 32));
+	wr(cb, CB_FSR, 0xffffffffu);
+	wr(cb, CB_TLBIALL, 0);
+	wr(cb, CB_TLBSYNC, 0);
+	for (int i = 0; i < 1000 && (rd(cb, CB_TLBSTATUS) & 1); i++) {
+		lav_wait(1);
+	}
+	printf("LAVGPU: CB4 before enable: CBAR %08x CBA2R %08x TCR %08x TCR2 %08x "
+	    "TTBR0 %08x%08x MAIR0 %08x\n", rd(smmu_va, SMMU_CBAR(SMMU_CB)),
+	    rd(smmu_va, SMMU_CBA2R(SMMU_CB)), rd(cb, CB_TCR), rd(cb, CB_TCR2),
+	    rd(cb, CB_TTBR0 + 4), rd(cb, CB_TTBR0), rd(cb, CB_MAIR0));
+
+	lav_announce("step 9: enable context bank 4 and map stream 0 to it");
+	/* M, TRE, AFE, CFRE, CFIE: translate, report faults, no stalling */
+	wr(cb, CB_SCTLR, (1u << 0) | (1u << 1) | (1u << 2) | (1u << 5) | (1u << 6));
+	wr(smmu_va, 0xc00, SMMU_CB);                           /* S2CR0: translate via CB4 */
+	wr(smmu_va, 0x800, 1u << 31);                          /* SMR0: valid, ID 0 */
+	printf("LAVGPU: CB4 SCTLR %08x FSR %08x; SMR0 %08x S2CR0 %08x (%s)\n",
+	    rd(cb, CB_SCTLR), rd(cb, CB_FSR), rd(smmu_va, 0x800),
+	    rd(smmu_va, 0xc00),
+	    (rd(smmu_va, 0xc00) & 0x3ffffu) == SMMU_CB ? "stream 0 -> CB4" :
+	    "did not take");
+}
+
+/*
+ * Step 10: microcode and ring, CP still halted. Put the PM4 (ME) and PFP
+ * images in physically contiguous buffers (the firmware file minus its first
+ * dword, as the vendor driver does), point the CP at them, allocate the ring
+ * and the read-pointer shadow, program the ring registers, read everything
+ * back. The CP is not started here. All addresses are PA = GPU VA through the
+ * identity table of step 9.
+ */
+#define A5_CP_RB_BASE           (0x0800u * 4)
+#define A5_CP_RB_CNTL           (0x0802u * 4)
+#define A5_CP_RB_RPTR_ADDR      (0x0804u * 4)
+#define A5_CP_RB_RPTR           (0x0806u * 4)
+#define A5_CP_RB_WPTR           (0x0807u * 4)
+#define A5_CP_CNTL              (0x0831u * 4)
+#define A5_CP_PFP_ME_CNTL       (0x0832u * 4)
+#define A5_CP_PFP_INSTR_BASE    (0x0835u * 4)
+#define A5_CP_ME_INSTR_BASE     (0x0838u * 4)
+#define RING_BYTES              0x8000u
+#define UCODE_BYTES             0x5000u
+
+static uint64_t ring_pa, rptr_pa, fence_pa, ucode_pm4_pa, ucode_pfp_pa;
+static vm_offset_t ring_va, rptr_va;
+
+static int
+lav_load_ucode(const char *name, uint64_t *pa)
+{
+	vm_offset_t va = 0;
+	uint32_t len = 0;
+
+	if (lav_alloc(UCODE_BYTES, PAGE_MASK, &va, pa) ||
+	    lav_read_file(name, (void *)va, UCODE_BYTES, &len)) {
+		return -1;
+	}
+	if (len < 8 || len > UCODE_BYTES) {
+		printf("LAVGPU: %s has an unexpected size %u\n", name, len);
+		return -1;
+	}
+	memmove((void *)va, (void *)(va + 4), len - 4);
+	flush_dcache64((addr64_t)*pa, UCODE_BYTES, TRUE);
+	printf("LAVGPU: %s: %u bytes of microcode at pa %llx\n", name, len - 4,
+	    (unsigned long long)*pa);
+	return 0;
+}
+
+static void
+step10_ucode_ring(void)
+{
+	uint64_t pm4_pa, pfp_pa;
+
+	if (!gx_on || smmu_pt_pa == 0) {
+		printf("LAVGPU: step 10 needs the GX power-up and the SMMU table\n");
+		return;
+	}
+	lav_announce("step 10: read the microcode files");
+	if (lav_load_ucode("a530_pm4.fw", &pm4_pa) ||
+	    lav_load_ucode("a530_pfp.fw", &pfp_pa) ||
+	    lav_alloc(RING_BYTES, PAGE_MASK, &ring_va, &ring_pa) ||
+	    lav_alloc(0x1000, PAGE_MASK, &rptr_va, &rptr_pa)) {
+		printf("LAVGPU: step 10: buffers not available\n");
+		return;
+	}
+	fence_pa = rptr_pa + 0x100;
+	ucode_pm4_pa = pm4_pa;
+	ucode_pfp_pa = pfp_pa;
+	printf("LAVGPU: ring pa %llx, rptr shadow pa %llx, fence pa %llx\n",
+	    (unsigned long long)ring_pa, (unsigned long long)rptr_pa,
+	    (unsigned long long)fence_pa);
+	printf("LAVGPU: CP_CNTL %08x CP_PFP_ME_CNTL %08x before\n",
+	    rd(gpu, A5_CP_CNTL), rd(gpu, A5_CP_PFP_ME_CNTL));
+
+	lav_announce("step 10: WRITE CP microcode base and ring registers");
+	wr(gpu, A5_CP_PFP_INSTR_BASE, (uint32_t)pfp_pa);
+	wr(gpu, A5_CP_PFP_INSTR_BASE + 4, (uint32_t)(pfp_pa >> 32));
+	wr(gpu, A5_CP_ME_INSTR_BASE, (uint32_t)pm4_pa);
+	wr(gpu, A5_CP_ME_INSTR_BASE + 4, (uint32_t)(pm4_pa >> 32));
+	/* ring: BUFSZ = log2(bytes/8) in bits 5:0, BLKSZ = log2(32/8) in bits 13:8 */
+	wr(gpu, A5_CP_RB_CNTL, 12u | (2u << 8));
+	wr(gpu, A5_CP_RB_BASE, (uint32_t)ring_pa);
+	wr(gpu, A5_CP_RB_BASE + 4, (uint32_t)(ring_pa >> 32));
+	wr(gpu, A5_CP_RB_RPTR_ADDR, (uint32_t)rptr_pa);
+	wr(gpu, A5_CP_RB_RPTR_ADDR + 4, (uint32_t)(rptr_pa >> 32));
+	printf("LAVGPU: PFP base %08x%08x ME base %08x%08x\n",
+	    rd(gpu, A5_CP_PFP_INSTR_BASE + 4), rd(gpu, A5_CP_PFP_INSTR_BASE),
+	    rd(gpu, A5_CP_ME_INSTR_BASE + 4), rd(gpu, A5_CP_ME_INSTR_BASE));
+	printf("LAVGPU: RB_CNTL %08x RB_BASE %08x%08x RPTR_ADDR %08x%08x RPTR %08x "
+	    "WPTR %08x\n", rd(gpu, A5_CP_RB_CNTL), rd(gpu, A5_CP_RB_BASE + 4),
+	    rd(gpu, A5_CP_RB_BASE), rd(gpu, A5_CP_RB_RPTR_ADDR + 4),
+	    rd(gpu, A5_CP_RB_RPTR_ADDR), rd(gpu, A5_CP_RB_RPTR),
+	    rd(gpu, A5_CP_RB_WPTR));
+}
+
+/*
+ * Step 11: start the command processor. Behaviour reference: Linux a5xx
+ * hw_init / me_init / flush (no code taken). Minimal subset: 64-bit address
+ * modes, secure-video block off, CP queue thresholds, un-halt PFP/ME, then
+ * packets through the ring: CP_ME_INIT, then CP_SET_SECURE_MODE(0), then a
+ * CP_MEM_WRITE to a fence word that the CPU reads back. Every submission is
+ * announced and the ladder stops at the first one the CP does not consume.
+ */
+#define A5_RBBM_INT_0_MASK      (0x0038u * 4)
+#define A5_CP_ROQ_THRESH_1      (0x081fu * 4)
+#define A5_CP_ROQ_THRESH_2      (0x0820u * 4)
+#define A5_CP_MEQ_THRESHOLDS    (0x0825u * 4)
+#define A5_CP_MERCIU_SIZE       (0x0826u * 4)
+#define A5_CP_CHICKEN_DBG       (0x0833u * 4)
+#define A5_CP_ADDR_MODE_CNTL    (0x0860u * 4)
+#define A5_SECVID_TSB_BASE_LO   (0xf800u * 4)
+#define A5_SECVID_TSB_SIZE      (0xf802u * 4)
+#define A5_SECVID_TSB_CNTL      (0xf803u * 4)
+#define A5_SECVID_TSB_ADDR_MODE (0xf810u * 4)
+#define RB_NO_UPDATE            (1u << 27)
+
+#define CP_NOP                  16u
+#define CP_ME_INIT              72u
+#define CP_MEM_WRITE            61u
+#define CP_SET_SECURE_MODE      102u
+
+static uint32_t ring_wptr;
+
+/* Odd parity bit of val, as the PM4 type 7 header wants it. */
+static uint32_t
+pm4_parity(uint32_t val)
+{
+	val ^= val >> 16;
+	val ^= val >> 8;
+	val ^= val >> 4;
+	return (0x9669u >> (val & 0xf)) & 1u;
+}
+
+static void
+ring_put(uint32_t v)
+{
+	((volatile uint32_t *)ring_va)[ring_wptr] = v;
+	ring_wptr = (ring_wptr + 1) % (RING_BYTES / 4);
+}
+
+static void
+ring_pkt7(uint32_t opcode, uint32_t cnt)
+{
+	ring_put(0x70000000u | (cnt & 0x3fff) | (pm4_parity(cnt) << 15) |
+	    ((opcode & 0x7f) << 16) | (pm4_parity(opcode) << 23));
+}
+
+/* Publish the packets and wait for the CP read pointer to catch up. */
+static int
+ring_submit(const char *what)
+{
+	uint32_t rptr = 0;
+
+	flush_dcache64((addr64_t)ring_pa, RING_BYTES, TRUE);
+	wr(gpu, A5_CP_RB_WPTR, ring_wptr);
+	for (int i = 0; i < 300; i++) {
+		rptr = rd(gpu, A5_CP_RB_RPTR);
+		if (rptr == ring_wptr) {
+			printf("LAVGPU: %s consumed: RPTR %u WPTR %u after %d ms\n",
+			    what, rptr, ring_wptr, i * 10);
+			return 0;
+		}
+		lav_wait(10);
+	}
+	printf("LAVGPU: %s NOT consumed: RPTR %u WPTR %u, RBBM_STATUS %08x INT_0 "
+	    "%08x AHB_ERR %08x\n", what, rptr, ring_wptr, rd(gpu, A5_RBBM_STATUS),
+	    rd(gpu, A5_RBBM_INT_0_STATUS), rd(gpu, A5_RBBM_AHB_ERR_STATUS));
+	return -1;
+}
+
+static void
+step11_cp_start(void)
+{
+	volatile uint32_t *fence;
+
+	if (ring_va == 0 || ring_pa == 0) {
+		printf("LAVGPU: step 11 needs the ring of step 10\n");
+		return;
+	}
+	lav_announce("step 11: WRITE the CP/RBBM setup registers");
+	wr(gpu, A5_SECVID_TSB_CNTL, 0);
+	wr(gpu, A5_SECVID_TSB_BASE_LO, 0);
+	wr(gpu, A5_SECVID_TSB_BASE_LO + 4, 0);
+	wr(gpu, A5_SECVID_TSB_SIZE, 0);
+	wr(gpu, A5_CP_ADDR_MODE_CNTL, 1);
+	wr(gpu, A5_SECVID_TSB_ADDR_MODE, 1);
+	wr(gpu, A5_CP_MEQ_THRESHOLDS, 0x40);
+	wr(gpu, A5_CP_MERCIU_SIZE, 0x400);
+	wr(gpu, A5_CP_ROQ_THRESH_2, 0x80000060);
+	wr(gpu, A5_CP_ROQ_THRESH_1, 0x40201b16);
+	wr(gpu, A5_CP_CHICKEN_DBG, 0x02000000);
+	wr(gpu, A5_RBBM_INT_0_MASK, 0);
+	wr(gpu, A5_CP_RB_CNTL, 12u | (2u << 8) | RB_NO_UPDATE);
+	printf("LAVGPU: RB_CNTL %08x CP_ADDR_MODE %08x\n", rd(gpu, A5_CP_RB_CNTL),
+	    rd(gpu, A5_CP_ADDR_MODE_CNTL));
+
+	lav_announce("step 11: clear the PFP/ME halt");
+	wr(gpu, A5_CP_PFP_ME_CNTL, 0);
+	lav_wait(50);
+	printf("LAVGPU: CP_PFP_ME_CNTL %08x RBBM_STATUS %08x RPTR %u WPTR %u\n",
+	    rd(gpu, A5_CP_PFP_ME_CNTL), rd(gpu, A5_RBBM_STATUS),
+	    rd(gpu, A5_CP_RB_RPTR), rd(gpu, A5_CP_RB_WPTR));
+
+	lav_announce("step 11: submit CP_ME_INIT");
+	ring_pkt7(CP_ME_INIT, 8);
+	ring_put(0x0000002f);	/* max context */
+	ring_put(0x00000003);	/* multiple hardware contexts */
+	ring_put(0x20000000);	/* error detection */
+	ring_put(0);
+	ring_put(0);
+	ring_put(0);		/* no microcode workarounds (a512) */
+	ring_put(0);
+	ring_put(0);
+	if (ring_submit("ME_INIT") != 0) {
+		return;
+	}
+
+	lav_announce("step 11: submit CP_SET_SECURE_MODE(0)");
+	ring_pkt7(CP_SET_SECURE_MODE, 1);
+	ring_put(0);
+	if (ring_submit("SET_SECURE_MODE") != 0) {
+		return;
+	}
+	printf("LAVGPU: SECVID_TRUST_CNTL now %08x RBBM_STATUS %08x\n",
+	    rd(gpu, A5_RBBM_SECVID_TRUST), rd(gpu, A5_RBBM_STATUS));
+
+	lav_announce("step 11: submit CP_MEM_WRITE (fence word)");
+	fence = (volatile uint32_t *)(rptr_va + 0x100);
+	*fence = 0;
+	flush_dcache64((addr64_t)fence_pa, 64, TRUE);
+	ring_pkt7(CP_MEM_WRITE, 3);
+	ring_put((uint32_t)fence_pa);
+	ring_put((uint32_t)(fence_pa >> 32));
+	ring_put(0xcafe0001u);
+	if (ring_submit("MEM_WRITE") != 0) {
+		return;
+	}
+	flush_dcache64((addr64_t)fence_pa, 64, TRUE);
+	printf("LAVGPU: fence word %08x (%s)\n", *fence,
+	    *fence == 0xcafe0001u ? "CP WROTE IT" : "not written");
+}
+
+/*
+ * Step 12: is the fence repeatable, and can the GPU be recovered from a hang
+ * without a reboot? (a) 16 fences with different values; (b) a deliberate
+ * hang: a CP_NOP whose length is larger than the data that follows swallows
+ * the next packet and leaves the CP waiting for the rest, so a fence queued
+ * behind it never lands; (c) RBBM software reset, the same bring-up again
+ * (microcode and ring registers, setup, un-halt, ME_INIT, secure mode off;
+ * the zap stays loaded), and a fence that must land again.
+ */
+#define A5_RBBM_SW_RESET_CMD    (0x0043u * 4)
+
+static int
+fence_test(uint32_t val, unsigned wait_ms)
+{
+	volatile uint32_t *fence = (volatile uint32_t *)(rptr_va + 0x100);
+
+	*fence = 0;
+	flush_dcache64((addr64_t)fence_pa, 64, TRUE);
+	ring_pkt7(CP_MEM_WRITE, 3);
+	ring_put((uint32_t)fence_pa);
+	ring_put((uint32_t)(fence_pa >> 32));
+	ring_put(val);
+	flush_dcache64((addr64_t)ring_pa, RING_BYTES, TRUE);
+	wr(gpu, A5_CP_RB_WPTR, ring_wptr);
+	for (unsigned i = 0; i < wait_ms / 5; i++) {
+		lav_wait(5);
+		flush_dcache64((addr64_t)fence_pa, 64, TRUE);
+		if (*fence == val) {
+			return 0;
+		}
+	}
+	return -1;
+}
+
+/* Everything the CP needs after a reset, same order as steps 10-11. */
+static int
+cp_bringup(void)
+{
+	ring_wptr = 0;
+	wr(gpu, A5_CP_PFP_INSTR_BASE, (uint32_t)ucode_pfp_pa);
+	wr(gpu, A5_CP_PFP_INSTR_BASE + 4, (uint32_t)(ucode_pfp_pa >> 32));
+	wr(gpu, A5_CP_ME_INSTR_BASE, (uint32_t)ucode_pm4_pa);
+	wr(gpu, A5_CP_ME_INSTR_BASE + 4, (uint32_t)(ucode_pm4_pa >> 32));
+	wr(gpu, A5_CP_RB_BASE, (uint32_t)ring_pa);
+	wr(gpu, A5_CP_RB_BASE + 4, (uint32_t)(ring_pa >> 32));
+	wr(gpu, A5_CP_RB_RPTR_ADDR, (uint32_t)rptr_pa);
+	wr(gpu, A5_CP_RB_RPTR_ADDR + 4, (uint32_t)(rptr_pa >> 32));
+	wr(gpu, A5_CP_RB_CNTL, 12u | (2u << 8) | RB_NO_UPDATE);
+	wr(gpu, A5_SECVID_TSB_CNTL, 0);
+	wr(gpu, A5_SECVID_TSB_BASE_LO, 0);
+	wr(gpu, A5_SECVID_TSB_BASE_LO + 4, 0);
+	wr(gpu, A5_SECVID_TSB_SIZE, 0);
+	wr(gpu, A5_CP_ADDR_MODE_CNTL, 1);
+	wr(gpu, A5_SECVID_TSB_ADDR_MODE, 1);
+	wr(gpu, A5_CP_MEQ_THRESHOLDS, 0x40);
+	wr(gpu, A5_CP_MERCIU_SIZE, 0x400);
+	wr(gpu, A5_CP_ROQ_THRESH_2, 0x80000060);
+	wr(gpu, A5_CP_ROQ_THRESH_1, 0x40201b16);
+	wr(gpu, A5_CP_CHICKEN_DBG, 0x02000000);
+	wr(gpu, A5_RBBM_INT_0_MASK, 0);
+	wr(gpu, A5_CP_PFP_ME_CNTL, 0);
+	lav_wait(50);
+	ring_pkt7(CP_ME_INIT, 8);
+	ring_put(0x0000002f);
+	ring_put(0x00000003);
+	ring_put(0x20000000);
+	ring_put(0);
+	ring_put(0);
+	ring_put(0);
+	ring_put(0);
+	ring_put(0);
+	if (ring_submit("re-ME_INIT") != 0) {
+		return -1;
+	}
+	ring_pkt7(CP_SET_SECURE_MODE, 1);
+	ring_put(0);
+	return ring_submit("re-SET_SECURE_MODE");
+}
+
+static void
+step12_fence_reset(void)
+{
+	unsigned ok = 0;
+	uint32_t trust;
+
+	if (ring_va == 0 || ring_pa == 0) {
+		printf("LAVGPU: step 12 needs steps 10 and 11\n");
+		return;
+	}
+	lav_announce("step 12: 16 fences with different values");
+	for (unsigned i = 0; i < 16; i++) {
+		if (fence_test(0xcafe0100u + i, 100) == 0) {
+			ok++;
+		} else {
+			printf("LAVGPU: fence %u did not land\n", i);
+		}
+	}
+	printf("LAVGPU: fence burst: %u of 16 landed, RPTR %u WPTR %u\n", ok,
+	    rd(gpu, A5_CP_RB_RPTR), rd(gpu, A5_CP_RB_WPTR));
+	if (ok != 16) {
+		return;
+	}
+
+	lav_announce("step 12: deliberate hang (short CP_NOP swallows the next packet)");
+	ring_pkt7(CP_NOP, 64);
+	ring_put(0);
+	ring_put(0);
+	if (fence_test(0xdead0001u, 500) == 0) {
+		printf("LAVGPU: the hang did NOT hang the CP, stopping\n");
+		return;
+	}
+	printf("LAVGPU: CP is stuck as intended: RPTR %u WPTR %u RBBM_STATUS %08x "
+	    "INT_0 %08x\n", rd(gpu, A5_CP_RB_RPTR), rd(gpu, A5_CP_RB_WPTR),
+	    rd(gpu, A5_RBBM_STATUS), rd(gpu, A5_RBBM_INT_0_STATUS));
+
+	lav_announce("step 12: RBBM software reset");
+	wr(gpu, A5_RBBM_SW_RESET_CMD, 1);
+	(void)rd(gpu, A5_RBBM_SW_RESET_CMD);
+	lav_wait(5);
+	wr(gpu, A5_RBBM_SW_RESET_CMD, 0);
+	lav_wait(5);
+	trust = rd(gpu, A5_RBBM_SECVID_TRUST);
+	printf("LAVGPU: after reset: RBBM_STATUS %08x SECVID_TRUST_CNTL %08x "
+	    "RPTR %u WPTR %u CP_PFP_ME_CNTL %08x\n", rd(gpu, A5_RBBM_STATUS),
+	    trust, rd(gpu, A5_CP_RB_RPTR), rd(gpu, A5_CP_RB_WPTR),
+	    rd(gpu, A5_CP_PFP_ME_CNTL));
+
+	lav_announce("step 12: bring the CP up again");
+	if (cp_bringup() != 0) {
+		printf("LAVGPU: recovery failed in the bring-up\n");
+		return;
+	}
+	if (fence_test(0xcafe0200u, 200) == 0) {
+		printf("LAVGPU: RECOVERED: a fence landed after the reset, "
+		    "SECVID_TRUST_CNTL %08x\n", rd(gpu, A5_RBBM_SECVID_TRUST));
+	} else {
+		printf("LAVGPU: recovery failed: the fence did not land\n");
 	}
 }
 
@@ -723,6 +1203,21 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
 	}
 	if (step >= 7) {
 		step7_smmu();
+	}
+	if (step >= 8) {
+		step8_smmu_bypass();
+	}
+	if (step >= 9) {
+		step9_smmu_s1();
+	}
+	if (step >= 10) {
+		step10_ucode_ring();
+	}
+	if (step >= 11) {
+		step11_cp_start();
+	}
+	if (step >= 12) {
+		step12_fence_reset();
 	}
 	printf("LAVGPU: ladder finished\n");
 }
