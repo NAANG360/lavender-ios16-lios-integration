@@ -169,6 +169,25 @@ jobs:
           bash build.sh 2>&1 | tee ../build.log
           ccache -s
 
+      - name: Republish build errors
+        if: failure()
+        run: |
+          # Job logs need a token; the annotations of a failed check are
+          # public. Republish the compiler errors (or the tail) so the
+          # failure can be read back without one.
+          if [ ! -f build.log ]; then
+            echo "::error::no build.log (build never started)"
+            exit 0
+          fi
+          grep -E 'error:|fatal error|Error [0-9]|undefined|No such file' build.log \
+            | tail -40 | cut -c1-400 > /tmp/build-errors.txt || true
+          if [ ! -s /tmp/build-errors.txt ]; then
+            tail -40 build.log | cut -c1-400 > /tmp/build-errors.txt
+          fi
+          while IFS= read -r line; do
+            printf '::error::%s\n' "${line//'%'/'%25'}"
+          done < /tmp/build-errors.txt
+
       - name: Fail if a storage or board patch was skipped
         if: always()
         run: |
