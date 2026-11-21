@@ -33,6 +33,7 @@
 | `0233-lavender-sdhci-adma2-read.patch` | ADMA2 **read** path into the bounce buffer (32 KiB descriptors, cache maintenance, PIO fallback, off after 3 failures). Writes stay PIO (0192). On by default after a PIO-vs-ADMA2 self-test at two places of the root; `sweetemmc_dma=0` keeps PIO | **On device**: cold read 465 KB/s (PIO) -> ~16 MB/s; boot to the lock screen ~23 min -> ~2 min; dyld cache files hash-identical to the host under 4 concurrent readers |
 | `0234-lavender-touch-real-panel-height.patch` | SweetHIDTouch takes the real panel size (1080x2340 from the boot video) instead of a hard-coded 2400: fixes the growing vertical offset and makes the bottom-edge band reachable (home/unlock swipe) | Pending device test |
 | `0235-lavender-vsync-at-panel-rate.patch` | The vsync notification to CoreAnimation follows `sweetfb_hz` (every `fFlushTicks` ticks) instead of a fixed 60 Hz, so the CPU compositor (`CA::OGL::SW`, ~150 % of backboardd) no longer draws frames the panel never shows | Pending device test |
+| `0236-lavender-gpu-probe.patch` | Adreno 512 bring-up ladder (`bsd/dev/lavender_gpu.c`), off unless `lavgpu=N`: 1 reads GCC/GPUCC state, 2 votes the GPU BIMC branches, 3 CX GDSC, 4 GX GDSC + core clocks + reads the RBBM/CP block. Each step is announced 2 s before the access. Project: `lavender-metal` | Pending device test |
 
 New lavender work takes the next free number from `0200` up.
 

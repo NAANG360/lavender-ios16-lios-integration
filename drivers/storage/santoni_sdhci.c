@@ -5018,6 +5018,13 @@ santoni_sdhci_init(void)
 	/* Boot-arg sweetouchi2c=1: does the touch controller answer at all? */
 	santoni_touch_probe();
 #endif
+#if defined(ARM64_BOARD_CONFIG_LAVENDER)
+	/* 0236: boot-arg lavgpu=N, Adreno 512 bring-up ladder (read-only first). */
+	{
+		extern int lavender_gpu_probe(void);
+		(void)lavender_gpu_probe();
+	}
+#endif
 	return 0;
 }
 

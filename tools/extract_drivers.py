@@ -31,6 +31,7 @@ DRIVERS = {
         "iokit/Kernel/arm/SweetFramebuffer.cpp",
         "iokit/Kernel/arm/SweetSurface.cpp",
     ],
+    "gpu": ["bsd/dev/lavender_gpu.c"],
     "touch": ["bsd/dev/sweet_touch.c"],
     "wifi": ["iokit/Kernel/arm/TopazModem.cpp"],
     "power": [
