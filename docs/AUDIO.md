@@ -1,9 +1,9 @@
 # Audio
 
-Status: **bring-up started (2026-11-21)**. No sound yet. Patch `0500` (read-only probe) and
-`0501` (LPASS/ADSP power-up) are written; `0500` compiles in the kernel CI build. Neither has
-run on the phone. The full plan and the hardware evidence are in
-[`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
+Status: **bring-up started (2026-11-21)**. No sound yet. Patches `0500` (read-only probe),
+`0501` (LPASS/ADSP power-up) and `0502` (ADSP firmware dry run) are written; `0500`/`0501`
+compile in the kernel CI. None has run on the phone yet. The full plan and the hardware
+evidence are in [`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
 
 ## What the phone actually has
 
@@ -42,7 +42,7 @@ userland AudioServer plug-in in `/System/Library/Audio/Plug-Ins/HAL` presenting
 | --- | --- | --- |
 | `0500` | read-only probe: GCC LPASS GDSC/vote, Q6SS, LPASS SMMU, digital codec/MCLK/AVTIMER/pinctrl, SMEM TOC + ADSP partition items, APCS IPC | **kernel CI build green** (run `44927793793`); pending device boot (`lavaud=1`) |
 | `0501` | LPASS/ADSP power-up (SMMU vote, GDSC un-collapse, re-read Q6SS); restores the collapse on failure | written; host tests green; pending device boot (`lavaud=2`) |
-| `0502` | read `adsp.mdt` + `adsp.bNN` from the modem FAT16, MDT parse and range check | planned |
+| `0502` | read `adsp.mdt` + `adsp.bNN` from the modem FAT16, parse the ELF/hash table and check every segment against the `0x92a00000` carve-out (read-only dry run) | written; host tests green; pending device boot (`lavaud=3`) |
 | `0503` | TrustZone PAS load (PAS 1: `INIT_IMAGE`, `MEM_SETUP`, `AUTH_AND_RESET`) | planned |
 | `0504` | SMP2P out item + `slave-kernel` READY, GLINK `lpass` channels | planned |
 | `0505` | APR `apr_audio_svc`, AFE/ASM/ADM service enumeration | planned |
@@ -59,6 +59,7 @@ Build the shim with the audio boot args and boot it like any other test image:
 ```
 lavaud=1 lavauddelay=25    # read-only probe
 lavaud=2 lavauddelay=25    # probe + LPASS ADSP power-up
+lavaud=3 lavauddelay=25    # + adsp.mdt/adsp.bNN dry run from the modem FAT16
 ```
 
 `lavaud=0` (or absent) keeps the driver silent. The thread waits 25 s after the eMMC
@@ -76,6 +77,7 @@ SWEET AUDIO: lpass smmu sCR0 ...
 SWEET AUDIO: codec ... swr ...
 SWEET AUDIO: smem TOC ... apps<->adsp ... item ... (SMP2P/GLINK ids)
 SWEET AUDIO: apcs ipc ...
+SWEET AUDIO: ADSP.MDT ... hash ... ADSP firmware dry run: N segments, ...  (lavaud>=3)
 SWEET AUDIO: probe done (lavaud=N)
 ```
 
