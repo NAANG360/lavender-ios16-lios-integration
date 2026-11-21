@@ -222,6 +222,45 @@ audio_wr(vm_offset_t base, uint32_t off, uint32_t val)
 	__asm__ volatile("dsb sy" ::: "memory");
 }
 
+/*
+ * The carve-out mapping is Device-nGnRnE. XNU's memset/memcpy store engine
+ * emits STNP pairs, which are not safe on Device memory (the modem's 0247
+ * lesson). Copy and zero with explicit volatile 64-bit stores.
+ */
+static void
+audio_io_zero(vm_offset_t dst, uint32_t n)
+{
+	volatile uint64_t *d = (volatile uint64_t *)dst;
+	uint32_t i;
+
+	for (i = 0; i + 8 <= n; i += 8) {
+		*d++ = 0;
+	}
+	for (; i < n; i++) {
+		*(volatile uint8_t *)(dst + i) = 0;
+	}
+	__asm__ volatile("dsb sy" ::: "memory");
+}
+
+static void
+audio_io_copy(vm_offset_t dst, const void *src, uint32_t n)
+{
+	const uint8_t *s = src;
+	volatile uint64_t *d = (volatile uint64_t *)dst;
+	uint32_t i;
+
+	for (i = 0; i + 8 <= n; i += 8) {
+		uint64_t v;
+
+		memcpy(&v, s + i, 8);
+		*d++ = v;
+	}
+	for (; i < n; i++) {
+		*(volatile uint8_t *)(dst + i) = s[i];
+	}
+	__asm__ volatile("dsb sy" ::: "memory");
+}
+
 static void
 audio_wait(unsigned ms)
 {
@@ -819,7 +858,7 @@ audio_fat_blob_to_va(const char *name, vm_offset_t dst, uint32_t want)
 			    err, off);
 			return err;
 		}
-		io_copy(dst + off, fat_bounce, n);
+		audio_io_copy(dst + off, fat_bounce, n);
 		off += n;
 		if (off < size) {
 			cluster = audio_fat_next(cluster);
@@ -1026,7 +1065,7 @@ audio_copy_cb(const char *name, uint32_t paddr, uint32_t filesz,
 		return err;
 	}
 	if (memsz > filesz) {
-		io_zero(c->region + (paddr - c->start) + filesz,
+		audio_io_zero(c->region + (paddr - c->start) + filesz,
 		    memsz - filesz);
 	}
 	printf("SWEET AUDIO: loaded %-11s %08x filesz %06x memsz %06x\n",
