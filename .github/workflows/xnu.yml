@@ -179,11 +179,12 @@ jobs:
             echo "::error::no build.log (build never started)"
             exit 0
           fi
-          grep -E 'error:|fatal error|Error [0-9]|undefined|No such file' build.log \
-            | tail -40 | cut -c1-400 > /tmp/build-errors.txt || true
-          if [ ! -s /tmp/build-errors.txt ]; then
-            tail -40 build.log | cut -c1-400 > /tmp/build-errors.txt
-          fi
+          {
+            grep -nE 'error:|fatal error:|ld: |Undefined symbols|undefined symbol' build.log \
+              | grep -v 'warning:' | tail -30 | cut -c1-400
+            echo "--- last log lines ---"
+            tail -20 build.log | cut -c1-400
+          } > /tmp/build-errors.txt || true
           while IFS= read -r line; do
             printf '::error::%s\n' "${line//'%'/'%25'}"
           done < /tmp/build-errors.txt
