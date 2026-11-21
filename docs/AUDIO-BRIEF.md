@@ -1,9 +1,10 @@
 # audio on lavender (SDM660): what the hardware is, and the ladder
 
 Status: research brief for the `0500`–`0599` series. Written 2026-11-21 after the
-GPU (`0236`–`0253`) and Wi-Fi/modem (`0700`–`0706`) hard-path series. Nothing in this
-brief has run on the phone yet; the device facts below come from the phone's own
-device tree, its stock vendor image and the port's existing drivers.
+GPU (`0236`–`0253`) and Wi-Fi/modem (`0700`–`0706`) hard-path series. The phone's own
+`lavaud=3` boot has since run the read-only probe and the firmware dry run; the device
+facts below come from the phone's own device tree, its stock vendor image and the port's
+existing drivers.
 
 ## 1. The premise was wrong: there is no WCD9335 and no SLIMbus audio
 
@@ -124,34 +125,57 @@ reserved as we go so another agent cannot collide (this series uses 0500+).
 | `0504` | post-PAS inventory: wait for the ADSP SMP2P item, dump the apps↔ADSP partition and the GLINK candidates (read only) | `lavaud=5` | only after 0503 says the DSP is up |
 | `0505` | fix the SMP2P **v1 packed header** (SDM660 vendor layout) and print the fixed ids 429/443/478/479/480 (read only) | `lavaud=5` | none; the 0500/0504 parser used the SM6225 layout and would have mis-decoded this SoC |
 | `0506` | SMP2P out item 429 + `slave-kernel` READY, GLINK `lpass` edge 478/479/480 (first SMEM writes) | `lavaud=6` | only with the exact ids and after the inventory |
-| `0505` | APR `apr_audio_svc`: enumerate AFE/ASM/ADM services; no audio yet | `lavaud=6` | polling only, no interrupts |
-| `0506` | PM660L codec bring-up over SPMI: ID/revision, supplies, codec reset (LPI GPIO 24), MCLK 9.6 MHz, MBHC/HPH/SPK blocks; read back | `lavaud=7` | codec writes after supplies are verified; keep `cdc-vdd-pa`/BOB state |
-| `0507` | LPASS digital codec + SWR master + AFE `INT4_MI2S_RX` port: bit clock/frame sync, SWR frame shape, port started | `lavaud=8` | must not touch LPASS registers while the DSP owns the block; check 0505 first |
-| `0508` | ASM stream + ADM COPP to `INT4_MI2S_RX`; 1 kHz stereo tone, speakers muted/enabled per mixer sequence | `lavaud=9` | audible; keep volume at minimum, monitor codec OCP |
-| `0509` | `/dev/lavender-audio` sink and the topaz-derived HAL plug-in (Speaker/Hawking/Codec); mediaserverd frames | `lavaud=10` | userland install on the root image; no Apple binaries |
-| ``0510``+` | microphone (INT3_MI2S_TX/ADC), jack detection/MBHC, volume, suspend | | after the speaker path works |
+| `0507` | power-order fix from the first device log: un-collapse the LPASS ADSP GDSC before voting the SMMU branch; the old order returned at `80000001` (EN, OFF) | `lavaud=3` | if the GDSC still does not report PWR_ON, the CX rail/voter is missing |
+| `0508` | PAS metadata/hash fixes from the same log: hash phdr by p_flags at phdr+24 (PT_NULL), external `ADSP.Bnn` hash blob, header+phdrs+hash for `INIT_IMAGE`, SCM x1 status, entry/BSS checks, no Q6SS read when the domain is off | `lavaud=4` | refuses PAS without a readable hash or with an entry outside every segment |
+| `0509` | GLINK `lpass` edge and APR `apr_audio_svc`: enumerate AFE/ASM/ADM services; no audio yet | `lavaud=7` | polling only, no interrupts; needs a READY ADSP |
+| `0510` | PM660L codec bring-up over SPMI: ID/revision, supplies, codec reset (LPI GPIO 24), MCLK 9.6 MHz, MBHC/HPH/SPK blocks; read back | `lavaud=8` | codec writes after supplies are verified; keep `cdc-vdd-pa`/BOB state |
+| `0511` | LPASS digital codec + SWR master + AFE `INT4_MI2S_RX` port: bit clock/frame sync, SWR frame shape, port started | `lavaud=9` | must not touch LPASS registers while the DSP owns the block; check 0509 first |
+| `0512` | ASM stream + ADM COPP to `INT4_MI2S_RX`; 1 kHz stereo tone, speakers muted/enabled per mixer sequence | `lavaud=10` | audible; keep volume at minimum, monitor codec OCP |
+| `0513` | `/dev/lavender-audio` sink and the topaz-derived HAL plug-in (Speaker/Hawking/Codec); mediaserverd frames | `lavaud=11` | userland install on the root image; no Apple binaries |
+| `0514`+ | microphone (INT3_MI2S_TX/ADC), jack detection/MBHC, volume, suspend | | after the speaker path works |
 
 `0500` is deliberately the same shape as `0236` (GPU step 1) and `0700` (WLAN F0b):
 it only reads, announces every access 2 s ahead, and logs enough to decide the next
 step without another blind boot.
 
-## 6. Open questions that 0500 answers
+## 6. What the first device run answered
 
-1. **Is the LPASS ADSP power domain on after ABL?** (`0x7d034` PWR_ON/SW_COLLAPSE)
-   and is the SMMU vote on (`0x7d014`)?
-2. **Is the ADSP already running?** The SMEM ADSP partition (host0 0, host1 2) will
-   hold the ADSP's `$SMP` item (443) and GLINK fifos if it ran; this decides whether
-   `AUTH_AND_RESET` can be called without a shutdown first.
-3. **What do the fixed ids look like on this firmware?** The vendor `smem.h` gives
-   429/443 and 478/479/480; the inventory confirms they exist and whether
-   `slave-kernel` is set. The SMP2P header is the v1 packed form:
-   `magic, feature_version, rem_loc_proc_id, valid_total_ent, flags`, then
-   16 × `{name[16], value}` — **not** the SM6225 layout.
-4. **Is the LPASS Q6SS already out of reset / does the GDSC stay on?**
-5. **What is the LPASS SMMU state?** (global sCR0, SMR/S2CR mapping) - needed before
-   any ASM buffer is handed to the DSP.
-6. **Does the phone's APCS IPC register show stale ADSP bits?** (GLINK `0x200`,
-   SMP2P `0x400`)
+The `0505` kernel with `lavaud=3` ran the probe and the firmware dry run to the end
+without a hang (`work/wlan/audio-0505-lavaud3-2026-11-21.txt`):
+
+1. **Is the LPASS ADSP power domain on after ABL?** No: `0x7d034` read `00000001`
+   (SW_COLLAPSE 1, PWR_ON 0), and the SMMU vote `0x7d014` read `80000000` (off).
+   The old order voted SMMU first, which left it at `80000001` (EN set, OFF still
+   set) and returned before touching the GDSC. `0507` reverses the order.
+2. **Is the ADSP already running?** No. The apps↔ADSP partition is empty (`used
+   0x20`, no `$SMP` item) and APCS IPC read 0. There is no earlier run to shut down.
+3. **What do the fixed ids look like?** The SMEM TOC is v1 with 7 partitions and the
+   vendor layout is the v1 packed SMP2P header, as 0505 implements. The ids are
+   confirmed from the vendor `smem.h`; the post-PAS inventory that shows their values
+   still needs a running ADSP.
+4. **Is the Q6SS out of reset / does the GDSC stay on?** The Q6SS was deliberately not
+   read while the domain was off. The GDSC is still collapsed after ABL.
+5. **What is the LPASS SMMU state?** Not read: its vote clock was off, and 0508 keeps
+   the rule that the block is only touched after the GDSC and the branch report on.
+6. **Does APCS show stale ADSP bits?** No: `00000000` (GLINK bit 9 and SMP2P bit 10
+   both clear).
+
+The dry run also read `ADSP.MDT` (7964 bytes, 23 phdrs) from the modem FAT16 and found
+`ADSP.B02..B21` (20 blobs, 29,018,084 bytes, 0 bad). The same firmware is on this PC at
+`work/wlan/fw/NON-HLOS.bin`, which confirms the details the loader needs:
+
+- the hash phdr is index 1, `PT_NULL`, `p_flags 0x02200000`, 7176 bytes, and the MDT is
+  exactly 788 (ELF header + 23 phdrs) + 7176 (hash data): the vendor MDT is the
+  concatenation, and the hash phdr's `p_offset` (4096) is not where the table lives;
+- the table is the vendor 40-byte header + 32-byte digests — **not** topaz's
+  `8 + 40*N` entry format — so it is opaque to the AP and only TrustZone needs it;
+- phdr 22 is a pure-BSS segment (`filesz 0`, `memsz 0x23a000`) that ends exactly at
+  `0x94800000`; the old walk skipped it, so MEM_SETUP did not cover the ADSP BSS.
+
+The hash parser had two bugs the log exposed: it read `p_align` at phdr+28 instead of
+`p_flags` at phdr+24, and it required `p_type == PT_LOAD` although the hash phdr is
+`PT_NULL`. 0508 fixes both, assembles the metadata block for `INIT_IMAGE`, loads the BSS
+segment, checks the SCM x1 result, and validates the ELF entry address.
 
 ## 7. Safety
 

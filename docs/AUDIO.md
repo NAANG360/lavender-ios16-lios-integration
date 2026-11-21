@@ -2,9 +2,25 @@
 
 Status: **bring-up started (2026-11-21)**. No sound yet. Patches `0500` (read-only probe),
 `0501` (LPASS/ADSP power-up), `0502` (ADSP firmware dry run), `0503` (TrustZone PAS load),
-`0504` (post-PAS inventory), `0505` (SDM660 SMP2P v1 layout + vendor ids) and `0506` (SMP2P
-out 429 + kick) are written; `0500`–`0505` compile in the kernel CI. None has run on the
-phone yet. The full plan and the hardware evidence are in
+`0504` (post-PAS inventory), `0505` (SDM660 SMP2P v1 layout + vendor ids), `0506` (SMP2P
+out 429 + kick), `0507` (power order) and `0508` (PAS metadata/hash and SCM status) are
+written; `0507` run `44938672875` is green and `0508` is pending its CI run. One device
+boot has run: the `0505` kernel with `lavaud=3` (UDP live log at 15:46, saved as
+`work/wlan/audio-0505-lavaud3-2026-11-21.txt`). It confirmed the LPASS ADSP GDSC is
+collapsed after ABL and that voting the SMMU branch first leaves it at `80000001` (EN,
+OFF), so the old power-up returned before ever touching the GDSC; `0507` reverses that
+order. The rest of the probe was clean: the apps↔ADSP SMEM partition is empty
+(`used 0x20`), APCS IPC is 0 and `ADSP.MDT` is 7964 bytes with 23 phdrs. The same MDT is
+on this PC in `work/wlan/fw/NON-HLOS.bin`, which settles the loader details: the hash
+phdr is index 1, `PT_NULL`, `p_flags 0x02200000`, 7176 bytes, and the file is exactly
+788 (header + phdrs) + 7176 (hash) even though the phdr's `p_offset` says 4096. The table
+is the vendor 40-byte header + 32-byte digests (opaque to the AP), not topaz's
+8+40×N entry format. The loadable phdrs are `B02..B21` (20 blobs, 29,018,084 bytes)
+plus `B22`, a pure-BSS phdr (`filesz 0`, `memsz 0x23a000`, ending exactly at
+`0x94800000`) that the old walk skipped. `0508` fixes the hash detection the log exposed
+(p_flags at phdr+24, not +28; any p_type), assembles header+phdrs+hash for `INIT_IMAGE`,
+loads and zeroes the BSS segment, requires the SCM x1 status too, and checks the ELF
+entry address before calling PAS. The full plan and the hardware evidence are in
 [`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
 
 ## What the phone actually has
@@ -42,20 +58,21 @@ userland AudioServer plug-in in `/System/Library/Audio/Plug-Ins/HAL` presenting
 
 | Patch | What | State |
 | --- | --- | --- |
-| `0500` | read-only probe: GCC LPASS GDSC/vote, Q6SS, LPASS SMMU, digital codec/MCLK/AVTIMER/pinctrl, SMEM TOC + ADSP partition items, APCS IPC | **kernel CI build green** (run `44927793793`); pending device boot (`lavaud=1`) |
-| `0501` | LPASS/ADSP power-up (SMMU vote, GDSC un-collapse, re-read Q6SS); restores the collapse on failure | written; host tests green; pending device boot (`lavaud=2`) |
-| `0502` | read `adsp.mdt` + `adsp.bNN` from the modem FAT16, parse the ELF/hash table and check every segment against the `0x92a00000` carve-out (read-only dry run) | written; host tests green; pending device boot (`lavaud=3`) |
-| `0503` | TrustZone PAS load (`lavaud=4`): refuse over stale SMEM, `INIT_IMAGE`, `MEM_SETUP`, copy the segments into `0x92a00000`, `AUTH_AND_RESET`, then read the Q6SS; `lavaudforce=1` overrides the stale check | written; host tests green; pending device boot |
-| `0504` | read-only inventory after PAS (`lavaud=5`): wait up to 3 s for the ADSP's SMP2P item, dump the apps↔ADSP partition items, `$SMP` headers/entries and the GLINK fifo candidates | written; host tests green; pending device boot |
-| `0505` | fix the SDM660 SMP2P **v1 packed header** (`feature_version`/`rem_loc_proc_id`/`valid_total_ent`, not the SM6225 layout) and print the vendor ids: AP→ADSP 429, ADSP→AP 443, GLINK 478/479/480 | written; host tests green; pending device boot |
-| `0506` | `lavaud=6`: creates the AP SMP2P item 429 in the apps↔ADSP partition (hwlock 3, v1 header, `master-kernel`/`sleepstate`), kicks the ADSP on APCS bit 10 and waits up to 5 s for item 443's `slave-kernel` READY. First SMEM write of the series | written; host tests green; pending device boot |
-| `0507` | power-order fix from the first device log: the LPASS ADSP GDSC must be un-collapsed **before** voting the SMMU branch; the old order left the branch at `80000001` (EN, OFF). GDSC first, then CBCR, with the old failure text preserved | written; pending device boot (`lavaud=3`) |
-| `0508` | GLINK `lpass` edge 478/479/480, channel open/version and APR `apr_audio_svc` | planned |
-| `0509` | PM660L codec over SPMI (ID, supplies, reset, MCLK, HP/SPK/MBHC) | planned |
-| `0510` | LPASS digital codec + SWR master + AFE `INT4_MI2S_RX` port | planned |
-| `0511` | ASM stream + ADM COPP to `INT4_MI2S_RX`, 1 kHz test tone | planned |
-| `0512` | `/dev/lavender-audio` + the HAL plug-in (`Speaker`/`Hawking`/`Codec`) | planned |
-| `0513`+ | microphone (`INT3_MI2S_TX`/ADC), jack/MBHC, volume, suspend | planned |
+| `0500` | read-only probe: GCC LPASS GDSC/vote, Q6SS, LPASS SMMU, digital codec/MCLK/AVTIMER/pinctrl, SMEM TOC + ADSP partition items, APCS IPC | **device run** (`0505` kernel, `lavaud=3`); CI `44927793793` green |
+| `0501` | LPASS/ADSP power-up (SMMU vote, GDSC un-collapse, re-read Q6SS); restores the collapse on failure | device run reached this path, but the old order returned at the SMMU CBCR before the GDSC; retested by `0507` |
+| `0502` | read `adsp.mdt` + `adsp.bNN` from the modem FAT16, parse the ELF/hash table and check every segment against the `0x92a00000` carve-out (read-only dry run) | **device run** (`lavaud=3`): 20 blobs, 29,018,084 bytes, 0 bad; `0508` adds the 0x23a000 BSS phdr and fixes the hash parser |
+| `0503` | TrustZone PAS load (`lavaud=4`): refuse over stale SMEM, `INIT_IMAGE`, `MEM_SETUP`, copy the segments into `0x92a00000`, `AUTH_AND_RESET`, then read the Q6SS; `lavaudforce=1` overrides the stale check | pending device boot; `0508` hardens the metadata and SCM status checks |
+| `0504` | read-only inventory after PAS (`lavaud=5`): wait up to 3 s for the ADSP's SMP2P item, dump the apps↔ADSP partition items, `$SMP` headers/entries and the GLINK fifo candidates | written; pending device boot |
+| `0505` | fix the SDM660 SMP2P **v1 packed header** (`feature_version`/`rem_loc_proc_id`/`valid_total_ent`, not the SM6225 layout) and print the vendor ids: AP→ADSP 429, ADSP→AP 443, GLINK 478/479/480 | written; the pre-PAS partition dump from `lavaud=3` is empty (no entries yet) |
+| `0506` | `lavaud=6`: creates the AP SMP2P item 429 in the apps↔ADSP partition (hwlock 3, v1 header, `master-kernel`/`sleepstate`), kicks the ADSP on APCS bit 10 and waits up to 5 s for item 443's `slave-kernel` READY. First SMEM write of the series | written; pending device boot |
+| `0507` | power-order fix from the first device log: the LPASS ADSP GDSC must be un-collapsed **before** voting the SMMU branch; the old order left the branch at `80000001` (EN, OFF). GDSC first, then CBCR, with the old failure text preserved | **CI green** (run `44938672875`); pending device boot (`lavaud=3`) |
+| `0508` | PAS metadata/hash fixes from that log: find the hash phdr by `p_flags` at phdr+24 (`PT_NULL`, 7176 bytes); assemble header+phdrs+hash for `INIT_IMAGE` (the MDT is that concatenation even though `p_offset` lies); load and zero the `B22` BSS phdr (`filesz 0`, 0x23a000); require SCM x1 status; check the ELF entry; never read the Q6SS when the LPASS domain reported off | written; pending kernel CI and device boot |
+| `0509` | GLINK `lpass` edge 478/479/480, channel open/version and APR `apr_audio_svc` | planned |
+| `0510` | PM660L codec over SPMI (ID, supplies, reset, MCLK, HP/SPK/MBHC) | planned |
+| `0511` | LPASS digital codec + SWR master + AFE `INT4_MI2S_RX` port | planned |
+| `0512` | ASM stream + ADM COPP to `INT4_MI2S_RX`, 1 kHz test tone | planned |
+| `0513` | `/dev/lavender-audio` + the HAL plug-in (`Speaker`/`Hawking`/`Codec`) | planned |
+| `0514`+ | microphone (`INT3_MI2S_TX`/ADC), jack/MBHC, volume, suspend | planned |
 
 ## Running the probe
 
@@ -78,21 +95,28 @@ in advance. Expected lines in `SANTONILOG1` / the UDP live log:
 SWEET AUDIO: A0/A1 probe (lavaud=N) in 25 s
 SWEET AUDIO: gcc lpass_smmu_cbcr ... lpass_adsp_gdscr ...
 SWEET AUDIO: LPASS ADSP domain is ON|OFF
-SWEET AUDIO: smmu cbcr before/after ...        (lavaud>=2, only if off)
 SWEET AUDIO: adsp gdscr before/after ...       (lavaud>=2, only if off)
+SWEET AUDIO: smmu cbcr before/after ...        (lavaud>=2, only if off; after the GDSC)
 SWEET AUDIO: q6 reset ...                      (domain on)
 SWEET AUDIO: lpass smmu sCR0 ...
 SWEET AUDIO: codec ... swr ...
 SWEET AUDIO: smem TOC ... apps<->adsp ... item ... (SMP2P/GLINK ids)
 SWEET AUDIO: apcs ipc ...
-SWEET AUDIO: ADSP.MDT ... hash ... ADSP firmware dry run: N segments, ...  (lavaud>=3)
+SWEET AUDIO: ADSP.MDT ... hash phdr N at off+len (inline|ADSP.Bnn blob)
+SWEET AUDIO: ADSP firmware dry run: N segments, ... bad, N relocatable  (lavaud>=3)
+SWEET AUDIO: ADSP metadata N bytes ... ADSP image start..end, entry ...  (lavaud>=4)
+SWEET AUDIO: PAS init_image/mem_setup/auth_and_reset: ret ... res ...
 SWEET AUDIO: probe done (lavaud=N)
 ```
 
 At `lavaud=1`, if the domain is off after ABL, the probe deliberately skips the Q6SS,
 codec and SMMU reads: a read of a gated LPASS block on this SoC can hang the bus.
 `lavaud=2` is the step that turns the domain on and then re-reads them; if the GDSC never
-reports `PWR_ON`, the collapse bit is put back and the rest is skipped.
+reports `PWR_ON`, the collapse bit is put back and the rest is skipped. `0507` powers the
+GDSC before voting the SMMU branch; `0508` composes the metadata for `INIT_IMAGE`, refuses
+to start PAS without a hash table or with an entry outside every segment, checks the SCM
+x1 result as well as x0, and does not touch the Q6SS after auth when the LPASS domain
+reported off.
 
 ## References
 
