@@ -49,12 +49,13 @@ userland AudioServer plug-in in `/System/Library/Audio/Plug-Ins/HAL` presenting
 | `0504` | read-only inventory after PAS (`lavaud=5`): wait up to 3 s for the ADSP's SMP2P item, dump the apps↔ADSP partition items, `$SMP` headers/entries and the GLINK fifo candidates | written; host tests green; pending device boot |
 | `0505` | fix the SDM660 SMP2P **v1 packed header** (`feature_version`/`rem_loc_proc_id`/`valid_total_ent`, not the SM6225 layout) and print the vendor ids: AP→ADSP 429, ADSP→AP 443, GLINK 478/479/480 | written; host tests green; pending device boot |
 | `0506` | `lavaud=6`: creates the AP SMP2P item 429 in the apps↔ADSP partition (hwlock 3, v1 header, `master-kernel`/`sleepstate`), kicks the ADSP on APCS bit 10 and waits up to 5 s for item 443's `slave-kernel` READY. First SMEM write of the series | written; host tests green; pending device boot |
-| `0507` | GLINK `lpass` edge 478/479/480, channel open/version and APR `apr_audio_svc` | planned |
-| `0508` | PM660L codec over SPMI (ID, supplies, reset, MCLK, HP/SPK/MBHC) | planned |
-| `0509` | LPASS digital codec + SWR master + AFE `INT4_MI2S_RX` port | planned |
-| `0510` | ASM stream + ADM COPP to `INT4_MI2S_RX`, 1 kHz test tone | planned |
-| `0511` | `/dev/lavender-audio` + the HAL plug-in (`Speaker`/`Hawking`/`Codec`) | planned |
-| `0512`+ | microphone (`INT3_MI2S_TX`/ADC), jack/MBHC, volume, suspend | planned |
+| `0507` | power-order fix from the first device log: the LPASS ADSP GDSC must be un-collapsed **before** voting the SMMU branch; the old order left the branch at `80000001` (EN, OFF). GDSC first, then CBCR, with the old failure text preserved | written; pending device boot (`lavaud=3`) |
+| `0508` | GLINK `lpass` edge 478/479/480, channel open/version and APR `apr_audio_svc` | planned |
+| `0509` | PM660L codec over SPMI (ID, supplies, reset, MCLK, HP/SPK/MBHC) | planned |
+| `0510` | LPASS digital codec + SWR master + AFE `INT4_MI2S_RX` port | planned |
+| `0511` | ASM stream + ADM COPP to `INT4_MI2S_RX`, 1 kHz test tone | planned |
+| `0512` | `/dev/lavender-audio` + the HAL plug-in (`Speaker`/`Hawking`/`Codec`) | planned |
+| `0513`+ | microphone (`INT3_MI2S_TX`/ADC), jack/MBHC, volume, suspend | planned |
 
 ## Running the probe
 
