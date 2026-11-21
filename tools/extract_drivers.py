@@ -33,7 +33,10 @@ DRIVERS = {
     ],
     "gpu": ["bsd/dev/lavender_gpu.c"],
     "touch": ["bsd/dev/sweet_touch.c"],
-    "wifi": ["iokit/Kernel/arm/TopazModem.cpp"],
+    "wifi": [
+        "bsd/dev/lavender_wlan.c",
+        "iokit/Kernel/arm/TopazModem.cpp",
+    ],
     "power": [
         "iokit/Kernel/arm/SweetBattery.cpp",
         "bsd/dev/sweet_i2c1.c",
@@ -56,7 +59,11 @@ def extract(path, work, series):
     if not (work / ".git").is_dir():
         subprocess.run(["git", "init", "-q", str(work)], check=True)
     cmd = [
-        "git", "apply",
+        "git",
+        # The fixture has no .gitattributes; on Windows a CRLF checkout would
+        # make the mirrors differ from the LF copies the CI check expects.
+        "-c", "core.autocrlf=false",
+        "apply",
         f"--include={path}",
         "--whitespace=nowarn",
     ] + [str(p) for p in series]

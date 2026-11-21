@@ -5024,6 +5024,11 @@ santoni_sdhci_init(void)
 		extern int lavender_gpu_probe(void);
 		(void)lavender_gpu_probe();
 	}
+	/* 0242: boot-arg sweetwlan=1, WCN3990 platform probe (read only). */
+	{
+		extern int lavender_wlan_probe(void);
+		(void)lavender_wlan_probe();
+	}
 #endif
 	return 0;
 }
