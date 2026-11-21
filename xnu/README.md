@@ -34,6 +34,7 @@
 | `0234-lavender-touch-real-panel-height.patch` | SweetHIDTouch takes the real panel size (1080x2340 from the boot video) instead of a hard-coded 2400: fixes the growing vertical offset and makes the bottom-edge band reachable (home/unlock swipe) | Pending device test |
 | `0235-lavender-vsync-at-panel-rate.patch` | The vsync notification to CoreAnimation follows `sweetfb_hz` (every `fFlushTicks` ticks) instead of a fixed 60 Hz, so the CPU compositor (`CA::OGL::SW`, ~150 % of backboardd) no longer draws frames the panel never shows | Pending device test |
 | `0236-lavender-gpu-probe.patch` | Adreno 512 bring-up ladder (`bsd/dev/lavender_gpu.c`), off unless `lavgpu=N`: 1 reads GCC/GPUCC state, 2 votes the GPU BIMC branches, 3 CX GDSC, 4 GX GDSC + core clocks + reads the RBBM/CP block. Each step is announced 2 s before the access. Project: `lavender-metal` | Pending device test |
+| `0237-lavender-gpu-gx-root-clock.patch` | lavgpu step 4: force the GFX3D RCG root on (XO) before the GX GDSC, 3 s poll, collapse GX again on failure. Run `lavgpu=4` of 0236 left the GX GDSC at `08222000` (never PWR_ON): the DT marks it `force-enable-root-clk` | Pending device test |
 
 New lavender work takes the next free number from `0200` up.
 
