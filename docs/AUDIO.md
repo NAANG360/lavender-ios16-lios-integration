@@ -1,9 +1,9 @@
 # Audio
 
 Status: **bring-up started (2026-11-21)**. No sound yet. Patches `0500` (read-only probe),
-`0501` (LPASS/ADSP power-up) and `0502` (ADSP firmware dry run) are written; `0500`/`0501`
-compile in the kernel CI. None has run on the phone yet. The full plan and the hardware
-evidence are in [`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
+`0501` (LPASS/ADSP power-up), `0502` (ADSP firmware dry run) and `0503` (TrustZone PAS load)
+are written; `0500`–`0502` compile in the kernel CI. None has run on the phone yet. The full
+plan and the hardware evidence are in [`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
 
 ## What the phone actually has
 
@@ -43,7 +43,7 @@ userland AudioServer plug-in in `/System/Library/Audio/Plug-Ins/HAL` presenting
 | `0500` | read-only probe: GCC LPASS GDSC/vote, Q6SS, LPASS SMMU, digital codec/MCLK/AVTIMER/pinctrl, SMEM TOC + ADSP partition items, APCS IPC | **kernel CI build green** (run `44927793793`); pending device boot (`lavaud=1`) |
 | `0501` | LPASS/ADSP power-up (SMMU vote, GDSC un-collapse, re-read Q6SS); restores the collapse on failure | written; host tests green; pending device boot (`lavaud=2`) |
 | `0502` | read `adsp.mdt` + `adsp.bNN` from the modem FAT16, parse the ELF/hash table and check every segment against the `0x92a00000` carve-out (read-only dry run) | written; host tests green; pending device boot (`lavaud=3`) |
-| `0503` | TrustZone PAS load (PAS 1: `INIT_IMAGE`, `MEM_SETUP`, `AUTH_AND_RESET`) | planned |
+| `0503` | TrustZone PAS load (`lavaud=4`): refuse over stale SMEM, `INIT_IMAGE`, `MEM_SETUP`, copy the segments into `0x92a00000`, `AUTH_AND_RESET`, then read the Q6SS; `lavaudforce=1` overrides the stale check | written; host tests green; pending device boot |
 | `0504` | SMP2P out item + `slave-kernel` READY, GLINK `lpass` channels | planned |
 | `0505` | APR `apr_audio_svc`, AFE/ASM/ADM service enumeration | planned |
 | `0506` | PM660L codec over SPMI (ID, supplies, reset, MCLK, HP/SPK/MBHC) | planned |
@@ -60,6 +60,7 @@ Build the shim with the audio boot args and boot it like any other test image:
 lavaud=1 lavauddelay=25    # read-only probe
 lavaud=2 lavauddelay=25    # probe + LPASS ADSP power-up
 lavaud=3 lavauddelay=25    # + adsp.mdt/adsp.bNN dry run from the modem FAT16
+lavaud=4 lavauddelay=25    # + TrustZone PAS load and ADSP start
 ```
 
 `lavaud=0` (or absent) keeps the driver silent. The thread waits 25 s after the eMMC
