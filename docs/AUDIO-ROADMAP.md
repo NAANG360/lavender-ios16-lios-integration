@@ -65,7 +65,19 @@ PAS id 1, carve-out `0x92a00000` + 30 MiB). No hay que portar WCD9335 ni tocar S
   viejo → `0508` lo arregla~~
 - ~~SMEM: partición apps↔ADSP vacía (`used 0x20`), APCS IPC 0 — no hay corrida previa~~
 
-## F2 — Carga PAS del ADSP + SMP2P READY (`lavaud=4..6`) — 🔄 EN CURSO (0503–0506, 0508)
+## F2 — Carga PAS del ADSP + SMP2P READY (`lavaud=4..6`) — 🔄 EN CURSO (0503–0506, 0508, 0508b)
+
+### Verificado en el teléfono (2026-11-21, kernel `0508`, `lavaud=4`)
+
+- ~~`0507` funciona: GDSC `00000001`→`80000000` (on), CBCR `80000000`→`00000001`
+  (on), Q6SS/SMMU/códec legibles~~
+- ~~Dry run: hash phdr 1, 21 segmentos (con BSS `B22`), 31.352.804 B, 0 mal;
+  metadata 7964 B; imagen `92a00000..94800000`, entry en rango~~
+- ~~`PAS INIT_IMAGE` `ret 0 res 0` y `PAS MEM_SETUP` `ret 0 res 0`~~
+- ⚠️ La copia se colgó en **B04/0x92a20000** después de B02/B03; el resto de iOS
+  siguió vivo (lockscreen). `0508b` prueba el `io_copy` byte a byte del handoff,
+  `lavaudprobe=1` (lectura del carve-out + progreso cada 256 KiB) y
+  `lavaudcopy=0` (saltar la copia y probar `AUTH` sobre el carve-out tal cual).
 
 ### Logrado (escrito y CI verde; falta el boot que lo verifique)
 
@@ -85,8 +97,11 @@ PAS id 1, carve-out `0x92a00000` + 30 MiB). No hay que portar WCD9335 ni tocar S
 
 ### ⬜ PENDIENTE (bloqueo actual)
 
-- [ ] **Boot con `lavaud=4`** (kernel `0508`, CI verde): verificar PAS OK, Q6SS encendido
-      y `auth`/`PWR_ON` del dominio — primer hito medible de F2.
+- [ ] **Boot `0508b`** con `lavaud=4 lavaudprobe=1 lavaudcopy=0`: ver si el
+      carve-out ya trae el firmware (leer los 9 offsets) y si `AUTH` solo alcanza;
+      si no, repetir con `lavaudcopy=1` (copia byte a byte) y mirar dónde corta.
+- [ ] **Boot con `lavaud=4` completo**: verificar PAS OK, Q6SS encendido
+      y `auth`/`PWR_ON` del dominio — hito medible de F2.
 - [ ] Boot `lavaud=5`: inventario post-PAS (ítems SMP2P que publica el ADSP al despertar).
 - [ ] Boot `lavaud=6`: `slave-kernel 443` en READY tras el kick — espejo exacto del
       `0x6` que ya logró el agente WLAN con el modem.
