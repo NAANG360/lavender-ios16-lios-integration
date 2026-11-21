@@ -3986,6 +3986,22 @@ santoni_sdhci_read_blocks(uint64_t lba, uint32_t count, void *buf)
 	return error;
 }
 
+/*
+ * 0245: read-only access to absolute eMMC LBAs for the modem loader. The
+ * modem partition is a FAT16 image; lavender_modem.c walks it to find MBA.MBN.
+ * The write path stays private and partition-fenced.
+ */
+int santoni_emmc_read(uint64_t lba, uint32_t count, void *buf);
+
+int
+santoni_emmc_read(uint64_t lba, uint32_t count, void *buf)
+{
+	if (!se.ready) {
+		return ENXIO;
+	}
+	return santoni_sdhci_read_blocks(lba, count, buf);
+}
+
 static int
 santoni_sdhci_write_blocks(uint64_t lba, uint32_t count, const void *buf)
 {
