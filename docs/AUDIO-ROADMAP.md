@@ -83,9 +83,10 @@ PAS id 1, carve-out `0x92a00000` + 30 MiB). No hay que portar WCD9335 ni tocar S
 - ~~Ítem SMP2P **443** presente (`local 2 remote 0 total 16 valid 0`), GLINK
   **478** (descriptor) y **480** (fifo1) presentes; 429/479 aún no (el AP no creó
   su lado)~~
-- ⚠️ El `flush_dcache64(carve-out, 31 MB, TRUE)` posterior a la copia cuelga
-  (memoria `no-map`/Device; `phystokv_range()` puede devolver 0). Se evita con
-  `lavaudcopy=0`; hay que quitarlo en 0508c para el camino con copia.
+- ⚠️ `lavaud=6 force copy=0`: `AUTH ret 0xffffffc3`; la corrida anterior del ADSP
+  ensució el carve-out (`0x1df0000 ffffffff`). Hay que **copiar en cada boot**
+  después del primero. `0508c` quita el `flush_dcache64` del carve-out que
+  colgaba; el próximo shim es `lavaud=6 lavaudcopy=1 lavaudforce=1`.
 
 ### Logrado (escrito y CI verde; falta el boot que lo verifique)
 
