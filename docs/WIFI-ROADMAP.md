@@ -1,7 +1,7 @@
 # Roadmap — Driver WiFi (WCN3990 + modem MSS) — lavender
 
 > Estado al **2026-11-22**. Progreso detallado en `work/briefs/wifi-wcn3990-brief.md`
-> (agente WLAN, serie de parches `0700`–`0726`, branch `wlan-0706`). Este archivo es el
+> (agente WLAN, serie de parches `0700`–`0732`, branch `wlan-0706`). Este archivo es el
 > tablero de avance: ~~tachado = verificado en el teléfono~~, `⬜ PENDIENTE` = falta.
 > Convención: un archivo por función clave (`WIFI-ROADMAP.md`, y luego GPU/Audio/etc.).
 
@@ -54,7 +54,7 @@ GLINK/QRTR.
   sistema vivo (~126 s). Log: `artifacts/logs/live-0711-auth-complete.txt`;
   CI `44929935655` (commit `b81de87`)~~
 
-## F2 — GLINK/QRTR + host services + WLFW — 🔄 EN CURSO (parches 0712–0726)
+## F2 — GLINK/QRTR + host services + WLFW — 🔄 EN CURSO (parches 0712–0732)
 
 ### Logrado (verificado en el teléfono)
 
@@ -67,10 +67,14 @@ GLINK/QRTR.
   layout SDM660: header *después* de los datos, empaquetado desde el final), doorbell
   bit **15**, VERSION/VERSION_ACK, OPEN/OPEN_ACK, intents, QRTR HELLO, servicios
   `42:b401 servreg-notif` y `2b:1202 ssctl`~~
-- ~~`0717`–`0720` **pd-mapper** en `0x4001` (servicio `0x40:0x101`): respuesta
-  `servreg_loc_get_domain_list` con los TLVs 16/17/18 y su byte de validez
-  (`QMI_OPT_FLAG`) delante; tabla con `tms/pddump_disabled` → `root_pd` y
-  `kernel/elf_loader`/`tms/servreg`/`wlan/fw` → `msm/modem/wlan_pd` (instancia 180)~~
+- ~~`0717`–`0720` **pd-mapper** en `0x4001` (servicio `0x40:0x101`):
+  `servreg_loc_get_domain_list`; el formato correcto (verificado contra bergamota
+  1115) es TLV 0x10 `u16 total_domains`, TLV 0x11 `u16 db_revision` y TLV 0x12
+  `[u8 count][entries]`, **sin** bytes de validez (0727 revirtió el 0720)~~
+- ~~`0728` **tabla que arranca wlan_pd**: `tms/pddump_disabled` y `tms/pdr_enabled`
+  → **0 dominios**, `avs/audio` → `msm/adsp/audio_pd/74`, `kernel/elf_loader` y
+  `wlan/fw` → `msm/modem/wlan_pd/180`; con la tabla vieja (1 dominio en pddump/pdr)
+  el PDR del módem se quedaba parado~~
 - ~~`0721` **tftp** (servicio `4096:1`, puerto `0x4002`): RRQ/WRQ, OACK,
   `blksize`/`tsize`, DATA/ACK con reintento; sirve el `IMAGE/` del FAT del `modem`
   (`WLANMDSP.MBN`, 3.859.712 B) sin cargarlo entero en RAM (`lavender_modem_fw_read`)~~
@@ -83,11 +87,24 @@ GLINK/QRTR.
   `announced rmtfs 14:1 port 4000`; el módem abre `modemst1` y `modemst2` (8 MiB
   copiados a RAM cada uno) y pide `ALLOC_BUFF 2 MiB`. El 0726 corrige el iovec: el
   `phys` del módem es la dirección **absoluta** dentro del staging, no un offset~~
+- ~~`0729`/`0730` **flush de caché**: el staging es `kmem_alloc_contig` cacheable;
+  sin `flush_dcache64` el módem leía ceros. La función recibe una **PA**, no un VA
+  (el 0729 panickeó con `physokv_range: Illegal PA`). Con el flush en la PA, el
+  módem lee 512 B de `modemst1`, 512 B de `modemst2` y **4094 sectores (~2 MiB) de
+  `modemst2`**, y el EFS queda válido~~
+- ~~**El PDR arranca (0730):** tras el EFS el módem pregunta `tms/pdr_enabled` → 0,
+  anuncia ~13 servicios (incluido `ipa`) y abre `apr_apps2`, `apr_voice_svc` y
+  `LOOPBACK_CTL_MPSS`~~
+- ~~`0731`/`0732` **TFTP server check**: el módem sube
+  `/readwrite/server_check.txt` por WRQ; se acepta en RAM (nunca al almacenamiento)
+  y el OACK debe ecoar **todas** las opciones pedidas (`blksize`, `wsize`,
+  `timeoutms`, `tsize`), o el cliente no envía los DATA~~
 
 ### ⬜ PENDIENTE
 
-- [ ] Verificar el **0726** completo en el teléfono: tras el EFS deberían venir las
-      consultas `kernel/elf_loader`/`wlan/fw`, el `tftp RRQ WLANMDSP.MBN` y WLFW.
+- [ ] Verificar el **0732** en el teléfono: server check completo (`got 5 bytes`),
+      luego `avs/audio`/`kernel/elf_loader` y el `tftp RRQ .../wlanmdsp.mbn`
+      (3.859.712 B).
 - [ ] **WLFW QMI `0x45`**: handshake con el PD de WLAN (IND_REGISTER, MSA_INFO,
       MSA_READY, CAP, BDF_DOWNLOAD, CAL_REPORT, FW_READY; cliente `0x4b4e454c`,
       puerto `0x4003`; VMIDs 0x18/0x19 para las regiones MSA), entrega de
@@ -133,6 +150,11 @@ GLINK/QRTR.
    (~`t=133`); no confundirlo con un cuelgue: la pantalla sigue y el diagnóstico
    debe leerse ahí. Aproximadamente 1 de cada 3 boots se queda en la auth del MBA;
    se recupera reiniciando.
+10. **`flush_dcache64(addr, len, release)` recibe una PA**, no un VA: pasarle un VA
+    de kmem panickea con `physokv_range: Illegal PA` (0729). Usar `pa + offset`.
+11. **TFTP Qualcomm**: el OACK debe ecoar todas las opciones que pidió el cliente
+    (`blksize`, `wsize`, `timeoutms`, `tsize`); un OACK parcial deja al módem sin
+    enviar los DATA del server check (0731/0732).
 
 ## Coordinación entre agentes
 
