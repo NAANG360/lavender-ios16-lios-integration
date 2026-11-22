@@ -1,7 +1,7 @@
 # Roadmap — Driver WiFi (WCN3990 + modem MSS) — lavender
 
-> Estado al **2026-11-21**. Progreso detallado en `work/briefs/wifi-wcn3990-brief.md`
-> (agente WLAN, serie de parches `0700`–`0719`, branch `wlan-0706`). Este archivo es el
+> Estado al **2026-11-22**. Progreso detallado en `work/briefs/wifi-wcn3990-brief.md`
+> (agente WLAN, serie de parches `0700`–`0726`, branch `wlan-0706`). Este archivo es el
 > tablero de avance: ~~tachado = verificado en el teléfono~~, `⬜ PENDIENTE` = falta.
 > Convención: un archivo por función clave (`WIFI-ROADMAP.md`, y luego GPU/Audio/etc.).
 
@@ -18,7 +18,7 @@ GLINK/QRTR.
 |---|---|---|
 | F0 | Inventario read-only (DTB, GPT, firmware, referencias) | ✅ COMPLETA |
 | F1 | Arranque del modem (MBA/PIL/SCM/auth) | ✅ COMPLETA |
-| F2 | GLINK/QRTR + host services + WLFW | 🔄 **EN CURSO** (bloqueo: WLFW no registra) |
+| F2 | GLINK/QRTR + host services + WLFW | 🔄 **EN CURSO** (host services completos; falta WLFW) |
 | F3 | HTC/WMI/HTT + scan | ⬜ PENDIENTE |
 | F4 | Assoc/WPA2 + data path + iOS (`en0`, Apple80211) | ⬜ PENDIENTE |
 
@@ -54,7 +54,7 @@ GLINK/QRTR.
   sistema vivo (~126 s). Log: `artifacts/logs/live-0711-auth-complete.txt`;
   CI `44929935655` (commit `b81de87`)~~
 
-## F2 — GLINK/QRTR + host services + WLFW — 🔄 EN CURSO (parches 0712–0719)
+## F2 — GLINK/QRTR + host services + WLFW — 🔄 EN CURSO (parches 0712–0726)
 
 ### Logrado (verificado en el teléfono)
 
@@ -67,22 +67,32 @@ GLINK/QRTR.
   layout SDM660: header *después* de los datos, empaquetado desde el final), doorbell
   bit **15**, VERSION/VERSION_ACK, OPEN/OPEN_ACK, intents, QRTR HELLO, servicios
   `42:b401 servreg-notif` y `2b:1202 ssctl`~~
+- ~~`0717`–`0720` **pd-mapper** en `0x4001` (servicio `0x40:0x101`): respuesta
+  `servreg_loc_get_domain_list` con los TLVs 16/17/18 y su byte de validez
+  (`QMI_OPT_FLAG`) delante; tabla con `tms/pddump_disabled` → `root_pd` y
+  `kernel/elf_loader`/`tms/servreg`/`wlan/fw` → `msm/modem/wlan_pd` (instancia 180)~~
+- ~~`0721` **tftp** (servicio `4096:1`, puerto `0x4002`): RRQ/WRQ, OACK,
+  `blksize`/`tsize`, DATA/ACK con reintento; sirve el `IMAGE/` del FAT del `modem`
+  (`WLANMDSP.MBN`, 3.859.712 B) sin cargarlo entero en RAM (`lavender_modem_fw_read`)~~
+- ~~`0722`–`0726` **rmtfs** (servicio `14:1`, puerto `0x4000`): OPEN por path
+  (`/boot/modem_fs1/2`, `_fsc`, `_fsg` → `modemst1/2`, `fsc`, `fsg`), CLOSE,
+  RW_IOVEC, ALLOC_BUFF y GET_DEV_ERROR; GPT por `emmc_read`, partición EFS copiada a
+  RAM (solo lectura del eMMC) y buffer de staging de 3 MiB del pool del kernel
+  asignado a **HLOS+MSS** (`scm_mem_assign`, dst `{HLOS, MSS_MSA}`)~~
+- ~~**Verificado en el teléfono (0725/0726):** `rmtfs buffer a3dc4000+300000 ready`,
+  `announced rmtfs 14:1 port 4000`; el módem abre `modemst1` y `modemst2` (8 MiB
+  copiados a RAM cada uno) y pide `ALLOC_BUFF 2 MiB`. El 0726 corrige el iovec: el
+  `phys` del módem es la dirección **absoluta** dentro del staging, no un offset~~
 
-### ⬜ PENDIENTE (bloqueo actual)
+### ⬜ PENDIENTE
 
-- [ ] **WLFW (QMI servicio `0x45`) no registra.** `0717`/`0718` sirven pd-mapper pero
-      el modem solo pregunta `tms/pddump_disabled -> 0 domain(s)`; nunca pide
-      `tms/servreg` ni `wlan/fw`. El fix del TLV de validez (0718) no cambió el resultado.
-- [ ] **`0719` en el teléfono** (shim listo, CI `44954035357`): mapea
-      `tms/pddump_disabled` → `msm/modem/root_pd` y loguea el QMI crudo
-      (`pd-mapper raw ... len N`) para ver los TLVs del request.
-- [ ] Si el modem sigue sin preguntar por `wlan/fw`: revisar **otros host services**
-      (`ssctl` completo, `tftp`) o la base real de servreg (`MODEMR.JSN`/`MODEMUW.JSN`
-      dentro de `NON-HLOS.bin` → `IMAGE/`, leíble con el walker FAT16).
-- [ ] **WLFW QMI `0x45`**: handshake con el PD de WLAN, entrega de `WLANMDSP.MBN`
-      (3.86 MB) por chunks + SCM assigns, CE rings/SRC/DST. Criterio: `wlfw 1` /
+- [ ] Verificar el **0726** completo en el teléfono: tras el EFS deberían venir las
+      consultas `kernel/elf_loader`/`wlan/fw`, el `tftp RRQ WLANMDSP.MBN` y WLFW.
+- [ ] **WLFW QMI `0x45`**: handshake con el PD de WLAN (IND_REGISTER, MSA_INFO,
+      MSA_READY, CAP, BDF_DOWNLOAD, CAL_REPORT, FW_READY; cliente `0x4b4e454c`,
+      puerto `0x4003`; VMIDs 0x18/0x19 para las regiones MSA), entrega de
+      `WLANMDSP.MBN` (3.86 MB) por chunks, CE rings/SRC/DST. Criterio: `wlfw 1` /
       `WLFW ready` en el `glink summary`.
-- [ ] `rmtfs`/`tftp` si el modem los reclama durante la carga del PD.
 
 ## F3 — HTC/WMI/HTT + scan — ⬜ PENDIENTE
 
@@ -113,6 +123,16 @@ GLINK/QRTR.
 5. **SMMU ANOC2**: sin SMRs válidos; no asumir traducción.
 6. **Verificar el shim antes de interpretar un boot**: los boot-args deciden qué
    sonda corre (`sweetwlan`/`sweetmodem` vs `lavgpu`/`lavaud`).
+7. **`MEM_PROT_ASSIGN` a una PA fija del DTB puede colgarse** con el Q6 ya vivo
+   (0723/0724: `map ok` y nunca vuelve el SMC). El patrón que funciona es el de
+   topaz: buffer `kmem_alloc_contig` del kernel y asignación a **HLOS + MSS_MSA**
+   (0725).
+8. **rmtfs iovec**: el `phys` que manda el módem es la dirección física **absoluta**
+   del staging buffer (`ALLOC_BUFF`), no un offset; restar la PA base (0726).
+9. **El USB del script muere** cuando el kernel espera READY en el bucle SMP2P
+   (~`t=133`); no confundirlo con un cuelgue: la pantalla sigue y el diagnóstico
+   debe leerse ahí. Aproximadamente 1 de cada 3 boots se queda en la auth del MBA;
+   se recupera reiniciando.
 
 ## Coordinación entre agentes
 
