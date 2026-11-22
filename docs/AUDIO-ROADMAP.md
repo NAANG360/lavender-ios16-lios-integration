@@ -78,10 +78,14 @@ PAS id 1, carve-out `0x92a00000` + 30 MiB). No hay que portar WCD9335 ni tocar S
   BSS incluido); el wedge de `0x92a20000` era el store de 64 bits~~
 - ~~La sonda del carve-out leyó `0x0 = 5800c00e` (B02) y `0x20000 = a09dc001`
   (B04): el **ABL ya precarga el firmware**, la copia es innecesaria~~
-- ⚠️ Después de B22 el hilo se quedó en `flush_dcache64(carve-out, 31 MB, TRUE)`:
-  el carve-out es `no-map` y Device, no necesita flush; `phystokv_range()` puede
-  devolver 0 y el bucle no avanza (0508c). El shim `lavaud=4 lavaudcopy=0` evita
-  copia y flush y va directo a `AUTH`.
+- ~~`lavaud=5` con `lavaudcopy=0`: `AUTH_AND_RESET ret 0 res 0`; Q6SS
+  `reset 00000004 → 00000001`, `pwr 030c0000 → 00000001`; el **ADSP arrancó**~~
+- ~~Ítem SMP2P **443** presente (`local 2 remote 0 total 16 valid 0`), GLINK
+  **478** (descriptor) y **480** (fifo1) presentes; 429/479 aún no (el AP no creó
+  su lado)~~
+- ⚠️ El `flush_dcache64(carve-out, 31 MB, TRUE)` posterior a la copia cuelga
+  (memoria `no-map`/Device; `phystokv_range()` puede devolver 0). Se evita con
+  `lavaudcopy=0`; hay que quitarlo en 0508c para el camino con copia.
 
 ### Logrado (escrito y CI verde; falta el boot que lo verifique)
 
@@ -101,11 +105,11 @@ PAS id 1, carve-out `0x92a00000` + 30 MiB). No hay que portar WCD9335 ni tocar S
 
 ### ⬜ PENDIENTE (bloqueo actual)
 
-- [ ] **Boot `0508b`** con `lavaud=4 lavaudprobe=1 lavaudcopy=0`: ver si el
-      carve-out ya trae el firmware (leer los 9 offsets) y si `AUTH` solo alcanza;
-      si no, repetir con `lavaudcopy=1` (copia byte a byte) y mirar dónde corta.
-- [ ] **Boot con `lavaud=4` completo**: verificar PAS OK, Q6SS encendido
-      y `auth`/`PWR_ON` del dominio — hito medible de F2.
+- [ ] **Boot `lavaud=6 lavaudcopy=0 lavaudforce=1`**: crear el ítem SMP2P 429,
+      patear APCS bit 10 y esperar `slave-kernel` en 443. Ojo: el 443 de la
+      corrida anterior queda en SMEM, por eso `lavaudforce=1`.
+- [ ] Si `slave-kernel` nunca aparece: revisar el layout/ítem 429 (el 443 v1
+      `valid 0` puede requerir que el AP cree 429 primero) y el APCS kick.
 - [ ] Boot `lavaud=5`: inventario post-PAS (ítems SMP2P que publica el ADSP al despertar).
 - [ ] Boot `lavaud=6`: `slave-kernel 443` en READY tras el kick — espejo exacto del
       `0x6` que ya logró el agente WLAN con el modem.
