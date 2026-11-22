@@ -43,7 +43,7 @@
  *                   for item 443's slave-kernel READY (A5, first SMEM write)
  *   lavaud=7        also bring up GLINK lpass (descriptor 478, TX 479, RX 480),
  *                   open the apr_audio_svc channel and send the APR core query
- *   lavaud=8        also read the PM660L analog codec over SPMI (SID 2,
+ *   lavaud=8        also read the PM660L analog codec over SPMI (SID 3,
  *                   peripheral 0xf0) read-only
  *   lavaudforce=1   A3: load even if SMEM shows an ADSP from an earlier run
  *   lavaudcopy=0    A3: skip the segment copy (test a preloaded carve-out)
@@ -108,7 +108,7 @@ extern int santoni_emmc_read(uint64_t lba, uint32_t count, void *buf);
 /* SPMI observer read path shared with SweetBattery (extended to SID 3). */
 extern int sweet_spmi_init(void);
 extern int sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
-/* 0510: lavender arbiter v3 path (SID 2 = PM660L analog codec). */
+/* 0510: lavender arbiter v3 path (SID 3 = PM660L analog codec). */
 extern int sweet_spmi_lavender_read(unsigned sid, unsigned addr,
     uint8_t *out);
 extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
@@ -2368,7 +2368,7 @@ audio_glink_apr(void)
 
 /*
  * F4: PM660L analog codec read-only probe. The codec is the SPMI device at
- * SID 2, base 0xf000 (vendor msm-analog-cdc.c); the lavender observer read
+ * SID 3, base 0xf000 (vendor msm-analog-cdc.c); the lavender observer read
  * path is extended for that peripheral in sweet_spmi.c (0510).
  */
 static void
@@ -2382,10 +2382,10 @@ audio_pm660l(void)
 	if (audio_step < 8) {
 		return;
 	}
-	audio_announce("read the PM660L analog codec over SPMI (SID 2, 0xf000)");
+	audio_announce("read the PM660L analog codec over SPMI (SID 3, 0xf000)");
 	for (uint32_t i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
 		uint8_t v = 0;
-		int err = sweet_spmi_lavender_read(2, 0xf000u + regs[i], &v);
+		int err = sweet_spmi_lavender_read(3, 0xf000u + regs[i], &v);
 
 		printf("SWEET AUDIO: PM660L[%04x] = %02x (%d)\n", regs[i], v,
 		    err);

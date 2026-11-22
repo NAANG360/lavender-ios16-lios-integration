@@ -1,12 +1,12 @@
 diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
-index 3286124..c6e7338 100644
+index 3286124..6a6145b 100644
 --- a/bsd/dev/lavender_audio.c
 +++ b/bsd/dev/lavender_audio.c
 @@ -43,6 +43,8 @@
   *                   for item 443's slave-kernel READY (A5, first SMEM write)
   *   lavaud=7        also bring up GLINK lpass (descriptor 478, TX 479, RX 480),
   *                   open the apr_audio_svc channel and send the APR core query
-+ *   lavaud=8        also read the PM660L analog codec over SPMI (SID 2,
++ *   lavaud=8        also read the PM660L analog codec over SPMI (SID 3,
 + *                   peripheral 0xf0) read-only
   *   lavaudforce=1   A3: load even if SMEM shows an ADSP from an earlier run
   *   lavaudcopy=0    A3: skip the segment copy (test a preloaded carve-out)
@@ -18,7 +18,7 @@ index 3286124..c6e7338 100644
 +/* SPMI observer read path shared with SweetBattery (extended to SID 3). */
 +extern int sweet_spmi_init(void);
 +extern int sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
-+/* 0510: lavender arbiter v3 path (SID 2 = PM660L analog codec). */
++/* 0510: lavender arbiter v3 path (SID 3 = PM660L analog codec). */
 +extern int sweet_spmi_lavender_read(unsigned sid, unsigned addr,
 +    uint8_t *out);
  extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
@@ -30,7 +30,7 @@ index 3286124..c6e7338 100644
  
 +/*
 + * F4: PM660L analog codec read-only probe. The codec is the SPMI device at
-+ * SID 2, base 0xf000 (vendor msm-analog-cdc.c); the lavender observer read
++ * SID 3, base 0xf000 (vendor msm-analog-cdc.c); the lavender observer read
 + * path is extended for that peripheral in sweet_spmi.c (0510).
 + */
 +static void
@@ -44,10 +44,10 @@ index 3286124..c6e7338 100644
 +	if (audio_step < 8) {
 +		return;
 +	}
-+	audio_announce("read the PM660L analog codec over SPMI (SID 2, 0xf000)");
++	audio_announce("read the PM660L analog codec over SPMI (SID 3, 0xf000)");
 +	for (uint32_t i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
 +		uint8_t v = 0;
-+		int err = sweet_spmi_lavender_read(2, 0xf000u + regs[i], &v);
++		int err = sweet_spmi_lavender_read(3, 0xf000u + regs[i], &v);
 +
 +		printf("SWEET AUDIO: PM660L[%04x] = %02x (%d)\n", regs[i], v,
 +		    err);
@@ -69,7 +69,7 @@ index 3286124..c6e7338 100644
  	printf("SWEET AUDIO: probe done (lavaud=%u)\n", audio_step);
  }
 diff --git a/bsd/dev/sweet_spmi.c b/bsd/dev/sweet_spmi.c
-index 1981490..2d5b39b 100644
+index 1981490..7543c7c 100644
 --- a/bsd/dev/sweet_spmi.c
 +++ b/bsd/dev/sweet_spmi.c
 @@ -86,11 +86,20 @@ sweet_spmi_init(void)
@@ -105,7 +105,7 @@ index 1981490..2d5b39b 100644
 + * 0510: lavender (SDM660) SPMI arbiter v2/v3, isolated from the SM6225 path.
 + * The DTB gives core 0x0800f000, observer 0x09400000, config 0x0800a000, ee 0;
 + * the APID table is at core + 0x800 and an observer channel is at
-+ * obsrvr + 0x8000 * apid (one page). PM660L (the analog codec) is SID 2.
++ * obsrvr + 0x8000 * apid (one page). PM660L analog codec is SID 3 (pm660l@3; the keys GPIO is the pm660l@2 instance).
 + */
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +#define LSP_CORE_PA     0x0800f000u
