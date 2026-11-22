@@ -76,7 +76,7 @@ userland AudioServer plug-in in `/System/Library/Audio/Plug-Ins/HAL` presenting
 | `0508` | PAS metadata/hash fixes from that log: find the hash phdr by `p_flags` at phdr+24 (`PT_NULL`, 7176 bytes); assemble header+phdrs+hash for `INIT_IMAGE` (the MDT is that concatenation even though `p_offset` lies); load and zero the `B22` BSS phdr (`filesz 0`, 0x23a000); require SCM x1 status; check the ELF entry; never read the Q6SS when the LPASS domain reported off | **device-verified** through MEM_SETUP; CI run `44942180169` green |
 | `0508b` | carve-out copy diagnostics from the `lavaud=4` hang: byte-wise `audio_io_copy`/`audio_io_zero` (the handoff says only byte stores are safe), `lavaudprobe=1` reads nine carve-out offsets and prints each 256 KiB read/copy point, `lavaudcopy=0` skips the segment copy to test a preloaded carve-out | written; pending kernel CI and device boot |
 | `0509` | GLINK `lpass` edge 478/479/480, channel open/version and APR `apr_audio_svc` | planned |
-| `0510` | PM660L codec over SPMI (ID, supplies, reset, MCLK, HP/SPK/MBHC) | planned |
+| `0510` | PM660L codec over SPMI: extend `sweet_spmi_read` to SID 3/peripheral `0xf0` and read the ID/revision registers at `0xf000` (`lavaud=8`, read-only). Supplies, reset, MCLK, HP/SPK/MBHC come next | written; pending device boot |
 | `0511` | LPASS digital codec + SWR master + AFE `INT4_MI2S_RX` port | planned |
 | `0512` | ASM stream + ADM COPP to `INT4_MI2S_RX`, 1 kHz test tone | planned |
 | `0513` | `/dev/lavender-audio` + the HAL plug-in (`Speaker`/`Hawking`/`Codec`) | planned |
