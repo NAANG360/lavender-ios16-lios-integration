@@ -26,8 +26,8 @@ PAS id 1, carve-out `0x92a00000` + 30 MiB). No hay que portar WCD9335 ni tocar S
 |---|---|---|
 | F0 | Inventario del camino de audio (DTBO, códecs, vendor XML, ADSP) | ✅ COMPLETA |
 | F1 | Sondas y power-up del ADSP (`lavaud=1..3`) | ✅ COMPLETA |
-| F2 | Carga PAS del ADSP + SMP2P READY (`lavaud=4..6`, parches 0503–0508) | 🔄 **EN CURSO** (todo escrito, CI verde; falta boot en el teléfono) |
-| F3 | GLINK `lpass` + APR (`0509`) | ⬜ PENDIENTE |
+| F2 | Carga PAS del ADSP + SMP2P READY (`lavaud=4..6`, parches 0503–0508) | ✅ COMPLETA (AUTH 0/0, ADSP arranca, 429+kick; GLINK sigue en F3) |
+| F3 | GLINK `lpass` + APR (`0509`/`0509b`) | ✅ COMPLETA (VERSION/OPEN + APR responde `0x110e8`) |
 | F4 | Códec analógico PM660L por SPMI (`0510`) | ⬜ PENDIENTE |
 | F5 | Códec digital LPASS + SWR + AFE `INT4_MI2S_RX` (`0511`) | ⬜ PENDIENTE |
 | F6 | ASM/ADM + tono de prueba 1 kHz (`0512`) | ⬜ PENDIENTE |
@@ -117,16 +117,24 @@ PAS id 1, carve-out `0x92a00000` + 30 MiB). No hay que portar WCD9335 ni tocar S
 - [ ] Si el ADSP no arranca: revisar rechazo por SMEM con corrida previa (usar
       `lavaudforce=1` como diagnóstico) y el estado x1 del SCM.
 
-## F3 — GLINK `lpass` + APR — ⬜ PENDIENTE (`0509`)
+## F3 — GLINK `lpass` + APR — ✅ COMPLETA (`0509`/`0509b`)
 
-- [ ] Canal GLINK 478/479/480 de la partición apps↔ADSP (la lección del modem aplica:
-      RX FIFO **cached**, layout header-después-de-dato)
-- [ ] Channel open/version + servicio APR `apr_audio_svc`
-- [ ] **Criterio de éxito:** APR vivo y respuestas del ADSP a las queries iniciales
+- ~~Canal GLINK 478/479/480: descriptor 478, RX 480 (16 KiB, uncached), TX 479
+  allocado por el AP en `0x4330`~~
+- ~~`VERSION`/`VERSION_ACK` (ADSP features 7), `OPEN apr_audio_svc` rcid 1~~
+- ~~Intents: el ADSP manda `CMD_INTENT` con `p1=2` (su canal), no el rcid; 8
+  intents de 0x200/0x400. El filtro `p1==rcid` era el bug (0509b)~~
+- ~~APR vivo: `GET_FWK_VERSION` (token 1) respondido con `APR_BASIC_RSP_RESULT`
+  `0x000110e8`, len 40. Falta decodificar el status y mandar la primera query AFE~~
+- [ ] Siguiente dentro de F3: imprimir el payload del basic response y una query
+  AFE (`0x1036`/INT4) para confirmar el servicio de audio
 
 ## F4 — Códec analógico PM660L por SPMI — ⬜ PENDIENTE (`0510`)
 
-- [ ] Identificación del códec por SPMI (SID 3, `0xf000`), supplies, reset
+- [ ] Identificación del códec por SPMI (SID 3, `0xf000`), supplies, reset.
+      Ojo: `sweet_spmi_read()` hoy sólo acepta **SID 0** y periféricos
+      `0x10..0x13/0x48`; hay que extender el whitelist a SID 3/`0xf0` y agregar
+      un camino de escritura.
 - [ ] MCLK, rutas RX4/RX5 → COMP → Spkr BOOST → SWR DAC_Port, MBHC
 - [ ] **Criterio de éxito:** registros del códec accesibles y rutas programadas
 

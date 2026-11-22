@@ -20,6 +20,13 @@ proved the power fix and the loader:
   stores, adds the `lavaudprobe=1` carve-out read/progress and `lavaudcopy=0` to test
   a preloaded carve-out.
 
+- **F3 (0509/0509b), `lavaud=7`:** GLINK `lpass` arriba — descriptor 478, RX 480,
+  TX 479 allocado, `VERSION_ACK`, `OPEN_ACK apr_audio_svc` rcid 1 — y el ADSP
+  respondió al `APR GET_FWK_VERSION` con `APR_BASIC_RSP_RESULT` (`0x110e8`,
+  token 1, len 40). El `CMD_INTENT` del ADSP usa `p1=2` (su canal), no el rcid;
+  el filtro viejo `p1==rcid` era el bug, corregido en 0509b. El status del basic
+  response y la primera query AFE quedan como siguiente paso.
+
 The full plan and the hardware evidence are in
 [`docs/AUDIO-BRIEF.md`](AUDIO-BRIEF.md).
 
