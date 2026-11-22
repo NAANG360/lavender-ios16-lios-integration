@@ -43,6 +43,8 @@
  *                   for item 443's slave-kernel READY (A5, first SMEM write)
  *   lavaud=7        also bring up GLINK lpass (descriptor 478, TX 479, RX 480),
  *                   open the apr_audio_svc channel and send the APR core query
+ *   lavaud=8        also read the PM660L analog codec over SPMI (SID 3,
+ *                   peripheral 0xf0) read-only
  *   lavaudforce=1   A3: load even if SMEM shows an ADSP from an earlier run
  *   lavaudcopy=0    A3: skip the segment copy (test a preloaded carve-out)
  *   lavaudprobe=1   A3: read the carve-out and print copy progress every 256K
@@ -103,6 +105,9 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  * uses it for the framebuffer, because io_submap is only 8 MiB. */
 extern vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, uint32_t);
 extern int santoni_emmc_read(uint64_t lba, uint32_t count, void *buf);
+/* SPMI observer read path shared with SweetBattery (extended to SID 3). */
+extern int sweet_spmi_init(void);
+extern int sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
 extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
 
 #define GCC_PA              0x00100000u
@@ -2358,6 +2363,37 @@ audio_glink_apr(void)
 	    glink_tx_msgs, glink_rx_msgs);
 }
 
+/*
+ * F4: PM660L analog codec read-only probe. The codec is the SPMI device at
+ * SID 3, base 0xf000 (vendor msm-analog-cdc.c); the shared observer read
+ * path is extended for that peripheral in sweet_spmi.c (0510).
+ */
+static void
+audio_pm660l(void)
+{
+	static const uint16_t regs[] = {
+		0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006,
+		0x0007, 0x0100, 0x0101,
+	};
+
+	if (audio_step < 8) {
+		return;
+	}
+	audio_announce("read the PM660L analog codec over SPMI (SID 3, 0xf000)");
+	if (sweet_spmi_init() != 0) {
+		printf("SWEET AUDIO: PM660L: SPMI init failed; no codec reads\n");
+		return;
+	}
+	for (uint32_t i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
+		uint8_t v = 0;
+		int err = sweet_spmi_read(3, 0xf000u + regs[i], &v);
+
+		printf("SWEET AUDIO: PM660L[%04x] = %02x (%d)\n", regs[i], v,
+		    err);
+		audio_wait(20);
+	}
+}
+
 static void
 audio_q6ss(void)
 {
@@ -2695,6 +2731,9 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
 		 * and go straight to GLINK (the wait loop is diagnostic only). */
 		audio_wait(3000);
 		audio_glink_apr();
+	}
+	if (audio_step >= 8) {
+		audio_pm660l();
 	}
 
 	printf("SWEET AUDIO: probe done (lavaud=%u)\n", audio_step);
