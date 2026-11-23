@@ -41,6 +41,11 @@ on:
         description: "Optional package-only mode: reuse xnu-kernel from a successful earlier workflow run"
         required: false
         default: ""
+      build_userdata_image:
+        description: "Build iOS 16.7.16 HFSX sparse image for the userdata partition"
+        type: boolean
+        required: false
+        default: true
   push:
     branches: [main, integration/lios-native-platform]
     paths:
@@ -89,6 +94,8 @@ jobs:
           clang --version | head -1
           bash tests/host/prepare-tree.sh "$RUNNER_TEMP/lavender-tree"
           OUT_DIR="$RUNNER_TEMP/host-out" bash tests/host/run.sh "$RUNNER_TEMP/lavender-tree"
+      - name: Lavender native QUP/RPM protocol and ADT tests
+        run: bash tests/native-lavender/run.sh
 
   build:
     if: ${{ inputs.kernel_source_run_id == '' }}
@@ -124,6 +131,10 @@ jobs:
           git -C dxb checkout -q FETCH_HEAD
           # 12.5-14.3 use the top-level patches dir; ours go next to blacktop's
           cp xnu/patches/*.patch xnu/patches/*.sh dxb/patches/
+          mkdir -p dxb/patches/support
+          cp xnu/patches/support/LavenderQUPI2C.cpp xnu/patches/support/LavenderQUPI2C.h \
+             xnu/patches/support/LavenderRPMGLINK.cpp xnu/patches/support/LavenderRPMGLINK.h \
+             dxb/patches/support/
           # libfirehose_kernel is built arm64e-only; the SWEET kernel is plain arm64.
           # topaz: Cortex-A53/A73 (ARMv8.0), so the same -mcpu as the kernel
           # (clang's apple-m1 default emits LSE atomics and LDAPR)
@@ -173,6 +184,14 @@ jobs:
           ccache -z
           bash build.sh 2>&1 | tee ../build.log
           ccache -s
+
+      - name: Verify Lavender native IOKit drivers were staged
+        if: success()
+        run: |
+          set -euo pipefail
+          XNU_DIR="$(find dxb -path '*/iokit/conf/files.arm64' -print -quit | sed 's|/iokit/conf/files.arm64$||')"
+          test -n "$XNU_DIR" || { echo "::error::XNU source tree not found after patching"; exit 1; }
+          python3 tools/verify-lavender-native-i2c.py --xnu-root "$XNU_DIR"
 
       - name: Republish build errors
         if: failure()
@@ -273,8 +292,8 @@ jobs:
 
   # Lavender is not allowed to fall through to the legacy Whyred recovery packer.
   # It gets its own Android boot-image artifacts for the user's custom ROM installer.
-  lavender-installer-payload:
-    name: Lavender ROM-installer boot payload
+  lavender-boot-image:
+    name: Lavender iOS boot image
     needs: [host-tests, build]
     if: ${{ always() && (inputs.machine_config || 'LAVENDER') == 'LAVENDER' && needs.host-tests.result == 'success' && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.kernel_source_run_id != '')) }}
     runs-on: ubuntu-24.04
@@ -315,7 +334,7 @@ jobs:
           # via the user's existing ROM installer. No recovery partition is used.
           # The iOS HFSX root is still expected at emmcroot0; this artifact does
           # not contain or flash a root filesystem.
-          COMMON="emmcrw=1 rootrw=1 cs_enforcement_disable=1 unentitled_ios_sim_launch=1 launchd_unsecure_cache=1 wdt=-1 wdt_test=no_user_checkin cpus=4"
+          COMMON="emmcrw=1 rootrw=1 cs_enforcement_disable=1 unentitled_ios_sim_launch=1 launchd_unsecure_cache=1 wdt=-1 wdt_test=no_user_checkin cpus=4 lavenderrpm=1 lavenderqup=0"
           FB_TEST="${{ inputs.fb_test_pattern || 'off' }}"
           FB_ARG=""
           FB_VERIFY="--reject sweetfbtest=1"
@@ -342,16 +361,16 @@ jobs:
               bash shim/build.sh "$KERNEL"
 
             local size
-            size=$(stat -c%s shim/out/shim-boot.img)
+            size=$(stat -c%s shim/out/shim-iosboot.img)
             echo "$output_name = $size bytes (Lavender ABL limit 7340032)"
             test "$size" -le 7340032 || { echo "::error::Lavender boot image exceeds ABL limit"; exit 1; }
-            cp shim/out/shim-boot.img "dist/$output_name"
+            cp shim/out/shim-iosboot.img "dist/$output_name"
 
             python3 tools/payload_cmdline.py --image "dist/$output_name" \
               --require rd=emmcroot0 --require emmcrw=1 --require rootrw=1 \
               --require cs_enforcement_disable=1 \
               --require unentitled_ios_sim_launch=1 \
-              --require launchd_unsecure_cache=1 --require cpus=4 $FB_VERIFY
+              --require launchd_unsecure_cache=1 --require cpus=4 --require lavenderrpm=1 --require lavenderqup=0 $FB_VERIFY
             python3 tools/payload_cmdline.py --image "dist/$output_name" --reject 'ignition_level='
             if [ "$NOCONSOLE" = 1 ]; then
               python3 tools/payload_cmdline.py --image "dist/$output_name" --require sweetfb_noconsole=1
@@ -362,13 +381,13 @@ jobs:
 
           # Preferred image: visible verbose boot text over the existing Apple
           # boot mark, with the persistent log ring and detailed CS diagnostics.
-          build_image boot.img "sweetlog=1 cs_debug=2" "-enable_kprintf_spam" 0
+          build_image iosboot.img "sweetlog=1 cs_debug=2" "-enable_kprintf_spam" 0
           # Smaller/less noisy fallback for repeated boots.
-          build_image boot-quiet.img "" "" 1
+          build_image iosboot-quiet.img "" "" 1
 
           python3 - <<'PY'
           import hashlib, json, os
-          names = ["boot.img", "boot-quiet.img"]
+          names = ["iosboot.img", "iosboot-quiet.img"]
           images = {}
           for name in names:
               path = os.path.join("dist", name)
@@ -381,7 +400,7 @@ jobs:
               "codename": "lavender",
               "board": "Qualcomm SDM660",
               "image_format": "Android boot image header v0, Qualcomm ABL",
-              "preferred_image": "boot.img",
+              "preferred_image": "iosboot.img",
               "partition_target": "boot",
               "recovery_partition_required": False,
               "root_device": "emmcroot0",
@@ -395,23 +414,23 @@ jobs:
               json.dump(manifest, f, indent=2)
               f.write("\n")
           PY
-          (cd dist && sha256sum boot*.img > SHA256SUMS)
+          (cd dist && sha256sum iosboot*.img > SHA256SUMS)
 
           cat > dist/INSTALLER-INTEGRATION.md <<'EOF'
-          LIOS Lavender ROM-installer payload
+          LIOS LIOS iOS boot payload
           ====================================
 
-          Preferred: boot.img
+          Preferred: iosboot.img
           - Verbose kernel console remains visible over the Apple boot mark.
           - Includes the persistent console ring and detailed code-signing diagnostics.
           - Intended for the normal Xiaomi ABL boot path via the boot partition.
 
-          Alternative: boot-quiet.img
+          Alternative: iosboot-quiet.img
           - Same XNU/ADT/board image path with reduced diagnostic output.
 
           Integration
           -----------
-          Place boot.img in the existing custom ROM installer and make its final
+          Place iosboot.img in the existing custom ROM installer and make its final
           boot-image operation write this file to the device's boot partition.
           Do not route it through recovery, and do not overwrite vbmeta, dtbo,
           modem, persist, or the user's other partitions as part of this handoff.
@@ -434,15 +453,195 @@ jobs:
           echo >> "$GITHUB_STEP_SUMMARY"
           echo "| Image | Size | SHA-256 |" >> "$GITHUB_STEP_SUMMARY"
           echo "| --- | ---: | --- |" >> "$GITHUB_STEP_SUMMARY"
-          for f in dist/boot*.img; do
+          for f in dist/iosboot*.img; do
             echo "| $(basename "$f") | $(stat -c%s "$f") B | $(sha256sum "$f" | cut -d' ' -f1) |" >> "$GITHUB_STEP_SUMMARY"
           done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: lavender-rom-installer-payload
+          name: lavender-iosboot-payload
           path: dist/
           if-no-files-found: error
+
+
+  lavender-root-filesystem:
+    name: Build iOS HFSX userdata image
+    needs: host-tests
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_userdata_image == true }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux filesystem and sparse-image tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq -o Acquire::Retries=3
+          sudo apt-get install -y -qq cmake g++ git pkg-config libfuse3-dev libbz2-dev zlib1g-dev hfsprogs android-sdk-libsparse-utils fuse3 rsync python3
+          sudo modprobe fuse
+          sudo modprobe hfsplus
+          command -v mkfs.hfsplus
+          command -v fsck.hfsplus
+          command -v img2simg
+          command -v simg_dump
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install ipsw firmware extractor
+        run: |
+          set -euo pipefail
+          go install github.com/blacktop/ipsw/cmd/ipsw@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Build APFS FUSE reader
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/sgan81/apfs-fuse.git "$RUNNER_TEMP/apfs-fuse"
+          cmake -S "$RUNNER_TEMP/apfs-fuse" -B "$RUNNER_TEMP/apfs-fuse/build" -DUSE_FUSE3=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/apfs-fuse/build" --parallel 2
+          sudo cmake --install "$RUNNER_TEMP/apfs-fuse/build" --prefix /usr/local
+          command -v apfs-fuse
+
+      - name: Download and verify iPhone X 16.7.16 IPSW
+        run: |
+          set -euo pipefail
+          IPSW="$RUNNER_TEMP/iPhone10,3_16.7.16_20H392_Restore.ipsw"
+          URL="https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw"
+          curl -fL --retry 5 --retry-all-errors --retry-delay 3 "$URL" -o "$IPSW"
+          echo "ece1194f7e233e9109c5790a8d23a4564a10a254e15ec5b09978a343265568fb  $IPSW" | sha256sum -c -
+          echo "IPSW_PATH=$IPSW" >> "$GITHUB_ENV"
+
+      - name: Build and validate HFSX userdata image
+        run: |
+          set -euo pipefail
+          bash tools/build-ios-root-linux.sh "$IPSW_PATH" "$RUNNER_TEMP/ios-root"
+          test -s "$RUNNER_TEMP/ios-root/ios16-root.simg"
+          test -s "$RUNNER_TEMP/ios-root/root-manifest.json"
+          cat "$RUNNER_TEMP/ios-root/root-manifest.json"
+          ls -lh "$RUNNER_TEMP/ios-root/ios16-root.simg"
+          df -h "$RUNNER_TEMP"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lavender-ios-rootfs
+          path: |
+            ${{ runner.temp }}/ios-root/ios16-root.simg
+            ${{ runner.temp }}/ios-root/root-manifest.json
+            ${{ runner.temp }}/ios-root/ROOT-SHA256SUMS
+            ${{ runner.temp }}/ios-root/ios16-root.sparse.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  lavender-ios-install-payload:
+    name: Assemble complete Lavender iOS install payload
+    needs: [lavender-boot-image, lavender-root-filesystem]
+    if: ${{ always() && needs.lavender-boot-image.result == 'success' && needs.lavender-root-filesystem.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: lavender-iosboot-payload
+          path: boot
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: lavender-ios-rootfs
+          path: root
+
+      - name: Assemble installer payload and manifest
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp boot/iosboot.img boot/iosboot-quiet.img root/ios16-root.simg dist/
+          cp root/root-manifest.json dist/
+          cp root/ios16-root.sparse.txt dist/
+          (
+            cd dist
+            sha256sum iosboot.img iosboot-quiet.img ios16-root.simg > SHA256SUMS
+          )
+          python3 - <<'PY'
+          import hashlib, json, os
+          names = ["iosboot.img", "iosboot-quiet.img", "ios16-root.simg"]
+          images = {}
+          for name in names:
+              data = open(os.path.join("dist", name), "rb").read()
+              images[name] = {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+          manifest = {
+              "schema": 1,
+              "device": "Xiaomi Redmi Note 7 / 7S",
+              "codename": "lavender",
+              "board": "Qualcomm SDM660",
+              "os": "iOS 16.7.16 (20H392)",
+              "kernel": "XNU DEVELOPMENT / Lavender, native LIOS RPM-GLINK + QUP-v2 providers",
+              "boot_image": "iosboot.img",
+              "boot_partition": "boot",
+              "userdata_image": "ios16-root.simg",
+              "userdata_partition": "userdata",
+              "userdata_filesystem": "16 GiB journaled case-sensitive HFSX",
+              "xnu_root_device": "emmcroot0",
+              "recovery_partition_required": False,
+              "vbmeta_or_dtbo_modified": False,
+              "bootloader_requirement": "Unlocked Xiaomi ABL",
+              "physical_boot_trust": "Not yet verified on the handset",
+              "images": images
+          }
+          with open("dist/manifest.json", "w") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\n")
+          PY
+          cat > dist/INSTALLER-INTEGRATION.md <<'EOF'
+          LIOS Lavender — complete iOS 16.7.16 install payload
+          =====================================================
+
+          Images
+          ------
+          - ios16-root.simg: 16 GiB logical HFSX root in Android sparse-image v1 format.
+            Target partition: userdata. The XNU root-device name for this eMMC partition
+            is emmcroot0.
+          - iosboot.img: preferred verbose XNU boot image. The Apple boot mark remains
+            visible behind kernel console text, with the persistent log ring enabled.
+            Target partition: boot.
+          - iosboot-quiet.img: reduced-console fallback for the same kernel and ADT.
+
+          Installer order
+          ---------------
+          1. Flash ios16-root.simg to userdata using a sparse-aware installer/fastboot
+             path. The userdata partition must be at least 16 GiB.
+          2. Flash iosboot.img to the normal boot partition.
+          3. Leave recovery, vbmeta, dtbo, modem, persist and unrelated partitions alone.
+
+          This replaces Android's userdata contents with the iOS HFSX root. Back up
+          anything in userdata first. Keep the previous ROM boot image for rollback.
+          No recovery partition is needed, and this package does not rewrite AVB/vbmeta.
+
+          The boot image contains the native Lavender RPM/GLINK provider. The QUP-v2
+          provider is compiled and registered but opt-in (lavenderqup=0) so it does not
+          seize GPIO2/3 while the reference bit-banged touchscreen driver still owns
+          those pins. RPM is enabled (lavenderrpm=1). This preserves the known-working
+          touch path while carrying the LIOS native platform work into the base.
+
+          Build-time kernel, DTB, sparse-image, HFSX and payload checks passed. Actual
+          ABL trust and the first physical boot remain device-side acceptance tests.
+          EOF
+          echo "### Complete Lavender iOS install payload" >> "$GITHUB_STEP_SUMMARY"
+          echo "| File | Size | SHA-256 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | ---: | --- |" >> "$GITHUB_STEP_SUMMARY"
+          for f in dist/iosboot*.img dist/ios16-root.simg; do
+            echo "| $(basename "$f") | $(stat -c%s "$f") B | $(sha256sum "$f" | cut -d' ' -f1) |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lavender-ios16-install-payload
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
 
   # Second zip of a completed build: the flashable boot image. The kernel
   # artifact cannot be downloaded without a token, and packing the shim by hand
