@@ -491,6 +491,7 @@ jobs:
           VERSION=3.1.750
           ARCHIVE="$RUNNER_TEMP/ipsw_${VERSION}_linux_x86_64.tar.gz"
           curl -fL --retry 4 --retry-all-errors "https://github.com/blacktop/ipsw/releases/download/v${VERSION}/ipsw_${VERSION}_linux_x86_64.tar.gz" -o "$ARCHIVE"
+          echo "d12c301625ca938f5cd5ba79a410359d0fa9f4076fec9dd529a15510bd2ca63e  $ARCHIVE" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/ipsw-bin"
           tar -xzf "$ARCHIVE" -C "$RUNNER_TEMP/ipsw-bin"
           IPSW_BIN="$(find "$RUNNER_TEMP/ipsw-bin" -type f -name ipsw -print -quit)"
