@@ -37,6 +37,10 @@ on:
           - "off"
           - "on"
         default: "off"
+      kernel_source_run_id:
+        description: "Optional package-only mode: reuse xnu-kernel from a successful earlier workflow run"
+        required: false
+        default: ""
   push:
     branches: [main, integration/lios-native-platform]
     paths:
@@ -87,6 +91,7 @@ jobs:
           OUT_DIR="$RUNNER_TEMP/host-out" bash tests/host/run.sh "$RUNNER_TEMP/lavender-tree"
 
   build:
+    if: ${{ inputs.kernel_source_run_id == '' }}
     needs: host-tests
     # macos-14 still ships Xcode 15.x: its iig matches the xnu-8796 IORPC ABI
     # (Xcode 16's iig emits IORPC.kernelContent, which this xnu lacks)
@@ -270,7 +275,8 @@ jobs:
   # It gets its own Android boot-image artifacts for the user's custom ROM installer.
   lavender-installer-payload:
     name: Lavender ROM-installer boot payload
-    needs: build
+    needs: [host-tests, build]
+    if: ${{ always() && (inputs.machine_config || 'LAVENDER') == 'LAVENDER' && needs.host-tests.result == 'success' && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.kernel_source_run_id != '')) }}
     if: ${{ (inputs.machine_config || 'LAVENDER') == 'LAVENDER' }}
     runs-on: ubuntu-24.04
     steps:
@@ -280,6 +286,9 @@ jobs:
         with:
           name: xnu-kernel
           path: xnu/out
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.kernel_source_run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Lavender shim toolchain
         timeout-minutes: 10
