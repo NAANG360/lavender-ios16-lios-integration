@@ -132,37 +132,31 @@ See [`docs/HARDWARE.md`](docs/HARDWARE.md) for the full audit and constraints.
 ## How it boots
 
 ```
-Xiaomi ABL
-  -> shim in the recovery partition (Power + Volume Up)
-  -> XNU kernel + ADT + boot arguments
-  -> HFSX root from userdata (rd=emmcroot0)
+Xiaomi ABL (unlocked)
+  -> normal boot partition: LIOS shim image installed by the custom ROM installer
+  -> shim copies the XNU kernel + ADT + boot arguments and hands off to XNU
+  -> HFSX root at emmcroot0
   -> launchd -> mount-phase-1/2 -> backboardd -> SpringBoard
-  -> iOS 16 lock screen
+  -> iOS 16 UI
 ```
 
-The shim is flashed to `recovery`; `fastboot boot` is stubbed by this ABL. `fastboot reboot recovery` boots Android and MIUI restores the stock recovery, so the working sequence is: flash the shim, power off, then **Power + Volume Up**.
+The LIOS integration workflow publishes `lavender-rom-installer-payload`. Its preferred `boot.img` keeps the verbose kernel console visible over the Apple boot mark and includes the persistent log ring; `boot-quiet.img` is the reduced-diagnostics alternative. Your existing ROM installer writes the selected image to the normal `boot` partition. This flow does not use the recovery partition or rely on `fastboot boot`.
 
-The current boot arguments include:
+The bootloader must be unlocked. CI validates the Lavender kernel, DTB, embedded payload and image size, but ABL/verified-boot acceptance still needs a physical boot test. The workflow leaves `vbmeta` and `dtbo` untouched.
 
-```
-rd=emmcroot0 emmcrw=1 rootrw=1
-cs_enforcement_disable=1 unentitled_ios_sim_launch=1 launchd_unsecure_cache=1
-sweetlog=1 sweetfb_noconsole=1 sweetfb_stayon=1 sweetfb_hz=30
-wdt=-1 wdt_test=no_user_checkin cpus=4
-```
+The images currently use `rd=emmcroot0`, so a compatible iOS HFSX root must already exist at that device. The boot artifact does not repartition or flash `userdata`.
 
-See [`docs/BOOT.md`](docs/BOOT.md) for the full chain and the log-pull procedure.
+See [`docs/BOOT.md`](docs/BOOT.md) and [`docs/LIOS-INSTALLER-INTEGRATION.md`](docs/LIOS-INSTALLER-INTEGRATION.md) for the installer handoff and boot checks.
 
 ## Build
 
-The repository does not contain Apple binaries, the IPSW, the 16 GiB root image or the stock ROM. You need to provide those yourself.
+The repository does not contain Apple binaries, the IPSW, the 16 GiB root image or the stock ROM. You need to provide those separately.
 
-1. **Kernel**: push a change to `xnu/patches/` (or run the workflow manually) and `.github/workflows/xnu.yml` builds `kernel.development.lavender` on `macos-15`.
-2. **Shim**: `tools/build-shim.sh <kernel>` packs the kernel, ADT and boot arguments into an Android boot image.
-3. **Root image** — extract `OS.dmg`, `SystemOS.dmg` and `AppOS.dmg` from the iPhone X 16.7.16 IPSW and build the HFSX image with `bergamota/tools/mkiosroot-macos.sh` plus `sweet-root-tweaks.py`.
-4. **Flash** — `fastboot -S 512M flash userdata ios16-root.simg`, then `fastboot flash recovery shim-boot.img`, then Power + Volume Up.
+1. **Kernel + boot images**: the `xnu` workflow builds `kernel.development.lavender`, then creates the `lavender-rom-installer-payload` artifact with `boot.img` (verbose, preferred) and `boot-quiet.img`.
+2. **Root image**: the reference userspace still expects an iOS HFSX root at `emmcroot0`. The filesystem image is not included in the boot artifact; prepare the root volume separately without overwriting partitions you intend to preserve.
+3. **ROM installer**: put the chosen boot image into your existing custom ROM installer and make it the final image written to the normal `boot` partition. Do not use the reference recovery-partition sequence. Preserve the stock/custom ROM's original boot image for rollback.
 
-The exact commands, hashes and caveats are in [`docs/BUILD.md`](docs/BUILD.md).
+The exact installer handoff and boot-trust gates are in [`docs/LIOS-INSTALLER-INTEGRATION.md`](docs/LIOS-INSTALLER-INTEGRATION.md) and [`docs/BUILD.md`](docs/BUILD.md).
 
 ## Repository layout
 
