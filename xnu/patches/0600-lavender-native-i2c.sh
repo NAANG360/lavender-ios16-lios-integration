@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "iokit/Kernel/arm/SweetPlatformExpert.cpp" ] || [ ! -f "iokit/conf/files.arm64" ]; then
+  echo "Deferring Lavender native IOKit staging until after the base XNU patches"
+  exit 0
+fi
 for source in LavenderQUPI2C.cpp LavenderQUPI2C.h LavenderRPMGLINK.cpp LavenderRPMGLINK.h; do
   test -s "$SCRIPT_DIR/support/$source"
   cp "$SCRIPT_DIR/support/$source" "iokit/Kernel/arm/$source"
@@ -63,12 +67,17 @@ if "rpmGlink = soc->childFromPath" not in s:
     s=s.replace(anchor,add,1)
 expert.write_text(s)
 f=files.read_text()
+lines=f.splitlines()
+anchor_index=next((i for i, entry in enumerate(lines)
+                   if entry.strip().startswith("iokit/Kernel/arm/SweetPlatformExpert.cpp")
+                   and "optional iokitcpp" in entry), None)
+if anchor_index is None:
+    raise SystemExit("files.arm64 SweetPlatformExpert entry changed")
 for line in ("iokit/Kernel/arm/LavenderRPMGLINK.cpp optional iokitcpp",
              "iokit/Kernel/arm/LavenderQUPI2C.cpp optional iokitcpp"):
-    if line not in f:
-        anchor="iokit/Kernel/arm/SweetPlatformExpert.cpp optional iokitcpp"
-        if anchor not in f: raise SystemExit("files.arm64 anchor changed")
-        f=f.replace(anchor,anchor+"\n"+line,1)
-files.write_text(f)
+    if line not in lines:
+        lines.insert(anchor_index + 1, line)
+        anchor_index += 1
+files.write_text("\n".join(lines) + "\n")
 print("staged Lavender native IOKit drivers")
 PY

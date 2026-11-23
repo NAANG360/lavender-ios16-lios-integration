@@ -46,6 +46,10 @@ on:
         type: boolean
         required: false
         default: true
+      rootfs_source_run_id:
+        description: "Reuse lavender-ios-rootfs artifact from a previous successful workflow run"
+        required: false
+        default: ""
   push:
     branches: [main, integration/lios-native-platform]
     paths:
@@ -78,6 +82,10 @@ env:
   CCACHE_MAXSIZE: 3G
   CCACHE_WRAP: ${{ github.workspace }}/ccache-bin
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   # lavender-ios16: the USB/keys drivers (0200/0201) on simulated registers.
   # Linux only: the mocks stand in for XNU headers and are built against
@@ -102,7 +110,7 @@ jobs:
     needs: host-tests
     # macos-14 still ships Xcode 15.x: its iig matches the xnu-8796 IORPC ABI
     # (Xcode 16's iig emits IORPC.kernelContent, which this xnu lacks)
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -135,6 +143,30 @@ jobs:
           cp xnu/patches/support/LavenderQUPI2C.cpp xnu/patches/support/LavenderQUPI2C.h \
              xnu/patches/support/LavenderRPMGLINK.cpp xnu/patches/support/LavenderRPMGLINK.h \
              dxb/patches/support/
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("dxb/build.sh")
+          s = p.read_text()
+          nl = chr(10)
+          needle = nl.join([
+              '        cd "${WORK_DIR}"',
+              '    fi',
+              '}',
+              '',
+              'build_bootstrap_cmds()'
+          ])
+          insert = nl.join([
+              '        if [ -f "${PATCH_DIR}/0600-lavender-native-i2c.sh" ]; then',
+              '            running "Running post-patch script: ${PATCH_DIR}/0600-lavender-native-i2c.sh"',
+              '            KDKROOT="${KDKROOT}" bash "${PATCH_DIR}/0600-lavender-native-i2c.sh"',
+              '        fi'
+          ]) + nl
+          if needle not in s:
+              raise SystemExit("dxb post-patch insertion anchor changed")
+          s = s.replace(needle, insert + needle, 1)
+          p.write_text(s)
+          print("Installed deterministic post-patch hook for Lavender native IOKit staging")
+          PY
           # libfirehose_kernel is built arm64e-only; the SWEET kernel is plain arm64.
           # topaz: Cortex-A53/A73 (ARMv8.0), so the same -mcpu as the kernel
           # (clang's apple-m1 default emits LSE atomics and LDAPR)
@@ -542,7 +574,7 @@ jobs:
   lavender-ios-install-payload:
     name: Assemble complete Lavender iOS install payload
     needs: [lavender-boot-image, lavender-root-filesystem]
-    if: ${{ always() && needs.lavender-boot-image.result == 'success' && needs.lavender-root-filesystem.result == 'success' }}
+    if: ${{ always() && needs.lavender-boot-image.result == 'success' && (needs.lavender-root-filesystem.result == 'success' || inputs.rootfs_source_run_id != '') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -550,20 +582,42 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: lavender-iosboot-payload
-          path: boot
+          path: dist
+
+      - name: Wait for source userdata artifact
+        if: ${{ inputs.rootfs_source_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ROOTFS_SOURCE_RUN_ID: ${{ inputs.rootfs_source_run_id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ROOTFS_SOURCE_RUN_ID/artifacts" --jq '.artifacts[] | select(.name=="lavender-ios-rootfs" and .expired==false) | .id' | grep -q .; then
+              echo "Source userdata artifact is available"
+              exit 0
+            fi
+            echo "Waiting for source userdata artifact ($attempt/30)"
+            sleep 60
+          done
+          echo "::error::Source userdata artifact did not become available"
+          exit 1
 
       - uses: actions/download-artifact@v4
         with:
           name: lavender-ios-rootfs
-          path: root
+          path: dist
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.rootfs_source_run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Assemble installer payload and manifest
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp boot/iosboot.img boot/iosboot-quiet.img root/ios16-root.simg dist/
-          cp root/root-manifest.json dist/
-          cp root/ios16-root.sparse.txt dist/
+          test -s dist/iosboot.img
+          test -s dist/iosboot-quiet.img
+          test -s dist/ios16-root.simg
+          test -s dist/root-manifest.json
           (
             cd dist
             sha256sum iosboot.img iosboot-quiet.img ios16-root.simg > SHA256SUMS
@@ -573,8 +627,12 @@ jobs:
           names = ["iosboot.img", "iosboot-quiet.img", "ios16-root.simg"]
           images = {}
           for name in names:
-              data = open(os.path.join("dist", name), "rb").read()
-              images[name] = {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+              path = os.path.join("dist", name)
+              digest = hashlib.sha256()
+              with open(path, "rb") as f:
+                  for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
+                      digest.update(chunk)
+              images[name] = {"size": os.path.getsize(path), "sha256": digest.hexdigest()}
           manifest = {
               "schema": 1,
               "device": "Xiaomi Redmi Note 7 / 7S",
