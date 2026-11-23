@@ -129,14 +129,17 @@ PAS id 1, carve-out `0x92a00000` + 30 MiB). No hay que portar WCD9335 ni tocar S
 - [ ] Siguiente dentro de F3: imprimir el payload del basic response y una query
   AFE (`0x1036`/INT4) para confirmar el servicio de audio
 
-## F4 — Códec analógico PM660L por SPMI — ⬜ PENDIENTE (`0510`)
+## F4 — Códec analógico PM660L por SPMI — 🔄 EN CURSO (read-only OK)
 
-- [ ] Identificación del códec por SPMI (SID 3, `0xf000`), supplies, reset.
-      Ojo: `sweet_spmi_read()` hoy sólo acepta **SID 0** y periféricos
-      `0x10..0x13/0x48`; hay que extender el whitelist a SID 3/`0xf0` y agregar
-      un camino de escritura.
-- [ ] MCLK, rutas RX4/RX5 → COMP → Spkr BOOST → SWR DAC_Port, MBHC
-- [ ] **Criterio de éxito:** registros del códec accesibles y rutas programadas
+- ~~Identificación por SPMI: arbiter lavender v3 (`0x0800f000`, observer
+  `0x09400000+0x8000*apid`), **SID 3** (`pm660l@3/analog-codec@f000`)~~
+- ~~`0xF004 = 0x23` (digital PERPH_TYPE, POR 0x23) y `0xF005 = 0x04` (subtipo);
+  `0xF100/0xF101` analógicos en 0. El códec responde.~~
+- [ ] Leer `0xF104/0xF105` (tipo/subtipo analógico) y las revisiones completas
+- [ ] Supplies, reset (LPI GPIO24), MCLK 9.6 MHz y rutas RX4/RX5 → COMP →
+      Spkr BOOST → SWR DAC_Port. **Requiere un camino de escritura SPMI**
+      (el observer actual es read-only); diseñarlo con cuidado.
+- [ ] **Criterio de éxito:** rutas del códec programadas y speaker path listo
 
 ## F5 — Códec digital LPASS + SWR + AFE — ⬜ PENDIENTE (`0511`)
 
