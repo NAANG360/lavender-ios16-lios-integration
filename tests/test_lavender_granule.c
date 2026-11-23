@@ -9,6 +9,6 @@ int main(void)
     assert(!lavender_tgran16_supported(0));
     assert(!lavender_tgran16_supported(3ULL << 20));
     assert(!lavender_tgran16_supported(0xfULL << 20));
-    assert(lavender_tgran16_supported((0x123ULL << 20) | (1ULL << 20)));
+    assert(lavender_tgran16_supported((0x123ULL << 32) | (1ULL << 20)));
     return 0;
 }
