@@ -46,6 +46,10 @@ on:
         type: boolean
         required: false
         default: true
+      rootfs_source_run_id:
+        description: "Reuse lavender-ios-rootfs artifact from a previous successful workflow run"
+        required: false
+        default: ""
   push:
     branches: [main, integration/lios-native-platform]
     paths:
@@ -78,6 +82,10 @@ env:
   CCACHE_MAXSIZE: 3G
   CCACHE_WRAP: ${{ github.workspace }}/ccache-bin
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   # lavender-ios16: the USB/keys drivers (0200/0201) on simulated registers.
   # Linux only: the mocks stand in for XNU headers and are built against
@@ -102,7 +110,7 @@ jobs:
     needs: host-tests
     # macos-14 still ships Xcode 15.x: its iig matches the xnu-8796 IORPC ABI
     # (Xcode 16's iig emits IORPC.kernelContent, which this xnu lacks)
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -542,7 +550,7 @@ jobs:
   lavender-ios-install-payload:
     name: Assemble complete Lavender iOS install payload
     needs: [lavender-boot-image, lavender-root-filesystem]
-    if: ${{ always() && needs.lavender-boot-image.result == 'success' && needs.lavender-root-filesystem.result == 'success' }}
+    if: ${{ always() && needs.lavender-boot-image.result == 'success' && (needs.lavender-root-filesystem.result == 'success' || inputs.rootfs_source_run_id != '') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -552,10 +560,31 @@ jobs:
           name: lavender-iosboot-payload
           path: boot
 
+      - name: Wait for source userdata artifact
+        if: ${{ inputs.rootfs_source_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ROOTFS_SOURCE_RUN_ID: ${{ inputs.rootfs_source_run_id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ROOTFS_SOURCE_RUN_ID/artifacts" --jq '.artifacts[] | select(.name=="lavender-ios-rootfs" and .expired==false) | .id' | grep -q .; then
+              echo "Source userdata artifact is available"
+              exit 0
+            fi
+            echo "Waiting for source userdata artifact ($attempt/30)"
+            sleep 60
+          done
+          echo "::error::Source userdata artifact did not become available"
+          exit 1
+
       - uses: actions/download-artifact@v4
         with:
           name: lavender-ios-rootfs
           path: root
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.rootfs_source_run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Assemble installer payload and manifest
         run: |
