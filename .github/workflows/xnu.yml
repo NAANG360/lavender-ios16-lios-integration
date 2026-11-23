@@ -147,39 +147,23 @@ jobs:
           from pathlib import Path
           p = Path("dxb/build.sh")
           s = p.read_text()
-          before = '''            for SCRIPT in "${PATCH_DIR}"/*.sh; do
-                running "Running script: ${SCRIPT}"
-                KDKROOT="${KDKROOT}" bash "${SCRIPT}"
-            done
-'''
-          after = '''            for SCRIPT in "${PATCH_DIR}"/*.sh; do
-                if [[ "${SCRIPT}" == *"/0600-lavender-native-i2c.sh" ]]; then
-                    continue
-                fi
-                running "Running script: ${SCRIPT}"
-                KDKROOT="${KDKROOT}" bash "${SCRIPT}"
-            done
-'''
-          if before not in s:
-              raise SystemExit("dxb pre-patch script loop changed")
-          s = s.replace(before, after, 1)
-          anchor = '''        cd "${WORK_DIR}"
-    fi
-}
-
-build_bootstrap_cmds()'''
-          replacement = '''        if [ -f "${PATCH_DIR}/0600-lavender-native-i2c.sh" ]; then
-            running "Running post-patch script: ${PATCH_DIR}/0600-lavender-native-i2c.sh"
-            KDKROOT="${KDKROOT}" bash "${PATCH_DIR}/0600-lavender-native-i2c.sh"
-        fi
-        cd "${WORK_DIR}"
-    fi
-}
-
-build_bootstrap_cmds()'''
-          if anchor not in s:
+          nl = chr(10)
+          needle = nl.join([
+              '        cd "${WORK_DIR}"',
+              '    fi',
+              '}',
+              '',
+              'build_bootstrap_cmds()'
+          ])
+          insert = nl.join([
+              '        if [ -f "${PATCH_DIR}/0600-lavender-native-i2c.sh" ]; then',
+              '            running "Running post-patch script: ${PATCH_DIR}/0600-lavender-native-i2c.sh"',
+              '            KDKROOT="${KDKROOT}" bash "${PATCH_DIR}/0600-lavender-native-i2c.sh"',
+              '        fi'
+          ]) + nl
+          if needle not in s:
               raise SystemExit("dxb post-patch insertion anchor changed")
-          s = s.replace(anchor, replacement, 1)
+          s = s.replace(needle, insert + needle, 1)
           p.write_text(s)
           print("Installed deterministic post-patch hook for Lavender native IOKit staging")
           PY

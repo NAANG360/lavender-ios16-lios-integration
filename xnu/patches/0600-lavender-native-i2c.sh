@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "iokit/Kernel/arm/SweetPlatformExpert.cpp" ] || [ ! -f "iokit/conf/files.arm64" ]; then
+  echo "Deferring Lavender native IOKit staging until after the base XNU patches"
+  exit 0
+fi
 for source in LavenderQUPI2C.cpp LavenderQUPI2C.h LavenderRPMGLINK.cpp LavenderRPMGLINK.h; do
   test -s "$SCRIPT_DIR/support/$source"
   cp "$SCRIPT_DIR/support/$source" "iokit/Kernel/arm/$source"
