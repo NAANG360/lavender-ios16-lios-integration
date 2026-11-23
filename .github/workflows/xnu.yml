@@ -271,7 +271,7 @@ jobs:
   lavender-installer-payload:
     name: Lavender ROM-installer boot payload
     needs: build
-    if: \${{ (inputs.machine_config || 'LAVENDER') == 'LAVENDER' }}
+    if: ${{ (inputs.machine_config || 'LAVENDER') == 'LAVENDER' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -308,7 +308,7 @@ jobs:
           # The iOS HFSX root is still expected at emmcroot0; this artifact does
           # not contain or flash a root filesystem.
           COMMON="emmcrw=1 rootrw=1 cs_enforcement_disable=1 unentitled_ios_sim_launch=1 launchd_unsecure_cache=1 wdt=-1 wdt_test=no_user_checkin cpus=4"
-          FB_TEST="\${{ inputs.fb_test_pattern || 'off' }}"
+          FB_TEST="${{ inputs.fb_test_pattern || 'off' }}"
           FB_ARG=""
           FB_VERIFY="--reject sweetfbtest=1"
           if [ "$FB_TEST" = "on" ]; then
@@ -317,7 +317,7 @@ jobs:
           fi
           COMMON="$COMMON $FB_ARG sweetrtc=$(date +%s)"
 
-          PANEL="\${{ inputs.panel_console || 'text' }}"
+          PANEL="${{ inputs.panel_console || 'text' }}"
           NOCONSOLE=0
           if [ "$PANEL" = "hidden" ]; then NOCONSOLE=1; fi
 
@@ -385,7 +385,7 @@ jobs:
           }
           with open("dist/manifest.json", "w") as f:
               json.dump(manifest, f, indent=2)
-              f.write("\\n")
+              f.write("\n")
           PY
           (cd dist && sha256sum boot*.img > SHA256SUMS)
 
