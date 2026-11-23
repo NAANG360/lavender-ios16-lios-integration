@@ -66,7 +66,7 @@ f=files.read_text()
 for line in ("iokit/Kernel/arm/LavenderRPMGLINK.cpp optional iokitcpp",
              "iokit/Kernel/arm/LavenderQUPI2C.cpp optional iokitcpp"):
     if line not in f:
-        anchor="iokit/Kernel/arm/SweetPlatformExpert.cpp"
+        anchor="iokit/Kernel/arm/SweetPlatformExpert.cpp optional iokitcpp"
         if anchor not in f: raise SystemExit("files.arm64 anchor changed")
         f=f.replace(anchor,anchor+"\n"+line,1)
 files.write_text(f)

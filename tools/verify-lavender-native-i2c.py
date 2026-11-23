@@ -61,7 +61,7 @@ if args.xnu_root:
     e=(xr/"iokit/Kernel/arm/SweetPlatformExpert.cpp").read_text()
     for token in ("LavenderQUPI2C.cpp optional iokitcpp",
                   "LavenderRPMGLINK.cpp optional iokitcpp"):
-        if token not in f: raise SystemExit(f"files.arm64 missing: {token}")
+        if f.count(token) != 1: raise SystemExit(f"files.arm64 entry missing or duplicated: {token}")
     for token in ("lavender_register_rpm_glink_driver();",
                   "lavender_register_qup_i2c_driver();",
                   'childFromPath("rpm-glink"'):
