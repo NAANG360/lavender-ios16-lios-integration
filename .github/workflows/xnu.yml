@@ -485,15 +485,18 @@ jobs:
           command -v img2simg
           command -v simg_dump
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-
-      - name: Install ipsw firmware extractor
+      - name: Install pinned ipsw firmware extractor
         run: |
           set -euo pipefail
-          go install github.com/blacktop/ipsw/cmd/ipsw@latest
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          VERSION=3.1.750
+          ARCHIVE="$RUNNER_TEMP/ipsw_${VERSION}_linux_x86_64.tar.gz"
+          curl -fL --retry 4 --retry-all-errors "https://github.com/blacktop/ipsw/releases/download/v${VERSION}/ipsw_${VERSION}_linux_x86_64.tar.gz" -o "$ARCHIVE"
+          mkdir -p "$RUNNER_TEMP/ipsw-bin"
+          tar -xzf "$ARCHIVE" -C "$RUNNER_TEMP/ipsw-bin"
+          IPSW_BIN="$(find "$RUNNER_TEMP/ipsw-bin" -type f -name ipsw -print -quit)"
+          test -n "$IPSW_BIN" || { echo "::error::ipsw binary missing from pinned release"; find "$RUNNER_TEMP/ipsw-bin" -maxdepth 3 -type f; exit 1; }
+          sudo install -m 0755 "$IPSW_BIN" /usr/local/bin/ipsw
+          ipsw version
 
       - name: Build APFS FUSE reader
         run: |
