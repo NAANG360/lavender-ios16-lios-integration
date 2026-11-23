@@ -277,7 +277,6 @@ jobs:
     name: Lavender ROM-installer boot payload
     needs: [host-tests, build]
     if: ${{ always() && (inputs.machine_config || 'LAVENDER') == 'LAVENDER' && needs.host-tests.result == 'success' && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.kernel_source_run_id != '')) }}
-    if: ${{ (inputs.machine_config || 'LAVENDER') == 'LAVENDER' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
