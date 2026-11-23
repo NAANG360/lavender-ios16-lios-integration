@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import argparse
 import struct
 import sys
 ROOT=Path(__file__).resolve().parents[1]
@@ -45,4 +46,24 @@ if base+0x01000000!=0x0C175000 or size<0x600: raise SystemExit(f"QUP reg mismatc
 if "/soc/rpm-glink" not in nodes: raise SystemExit("ADT lacks /soc/rpm-glink")
 rp={k:v for k,_f,v in nodes["/soc/rpm-glink"].props}
 if b"qcom,glink-rpm\0" not in rp.get("compatible",b""): raise SystemExit("RPM compatible mismatch")
+parser=argparse.ArgumentParser()
+parser.add_argument("--xnu-root")
+args=parser.parse_args()
+if args.xnu_root:
+    xr=Path(args.xnu_root)
+    for rel in ("iokit/Kernel/arm/LavenderQUPI2C.cpp",
+                "iokit/Kernel/arm/LavenderQUPI2C.h",
+                "iokit/Kernel/arm/LavenderRPMGLINK.cpp",
+                "iokit/Kernel/arm/LavenderRPMGLINK.h"):
+        if not (xr/rel).is_file():
+            raise SystemExit(f"staged XNU source missing: {rel}")
+    f=(xr/"iokit/conf/files.arm64").read_text()
+    e=(xr/"iokit/Kernel/arm/SweetPlatformExpert.cpp").read_text()
+    for token in ("LavenderQUPI2C.cpp optional iokitcpp",
+                  "LavenderRPMGLINK.cpp optional iokitcpp"):
+        if token not in f: raise SystemExit(f"files.arm64 missing: {token}")
+    for token in ("lavender_register_rpm_glink_driver();",
+                  "lavender_register_qup_i2c_driver();",
+                  'childFromPath("rpm-glink"'):
+        if token not in e: raise SystemExit(f"SweetPlatformExpert missing: {token}")
 print("Lavender native I2C/RPM ADT and source guards passed")
