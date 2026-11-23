@@ -558,7 +558,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: lavender-iosboot-payload
-          path: boot
+          path: dist
 
       - name: Wait for source userdata artifact
         if: ${{ inputs.rootfs_source_run_id != '' }}
@@ -581,7 +581,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: lavender-ios-rootfs
-          path: root
+          path: dist
           repository: ${{ github.repository }}
           run-id: ${{ inputs.rootfs_source_run_id || github.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -590,9 +590,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp boot/iosboot.img boot/iosboot-quiet.img root/ios16-root.simg dist/
-          cp root/root-manifest.json dist/
-          cp root/ios16-root.sparse.txt dist/
+          test -s dist/iosboot.img
+          test -s dist/iosboot-quiet.img
+          test -s dist/ios16-root.simg
+          test -s dist/root-manifest.json
           (
             cd dist
             sha256sum iosboot.img iosboot-quiet.img ios16-root.simg > SHA256SUMS
@@ -602,8 +603,12 @@ jobs:
           names = ["iosboot.img", "iosboot-quiet.img", "ios16-root.simg"]
           images = {}
           for name in names:
-              data = open(os.path.join("dist", name), "rb").read()
-              images[name] = {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+              path = os.path.join("dist", name)
+              digest = hashlib.sha256()
+              with open(path, "rb") as f:
+                  for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
+                      digest.update(chunk)
+              images[name] = {"size": os.path.getsize(path), "sha256": digest.hexdigest()}
           manifest = {
               "schema": 1,
               "device": "Xiaomi Redmi Note 7 / 7S",
