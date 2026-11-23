@@ -74,6 +74,6 @@ for line in ("iokit/Kernel/arm/LavenderRPMGLINK.cpp optional iokitcpp",
     if line not in lines:
         lines.insert(anchor_index + 1, line)
         anchor_index += 1
-files.write_text("\\n".join(lines) + "\\n")
+files.write_text("\n".join(lines) + "\n")
 print("staged Lavender native IOKit drivers")
 PY
