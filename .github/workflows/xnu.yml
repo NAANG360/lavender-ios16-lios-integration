@@ -38,7 +38,7 @@ on:
           - "on"
         default: "off"
   push:
-    branches: [main]
+    branches: [main, integration/lios-native-platform]
     paths:
       - "xnu/patches/**"
       - "resources/**"
