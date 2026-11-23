@@ -68,7 +68,7 @@ nc -ul 5140            # live console
 ping 192.168.7.2       # link check
 ```
 
-After a panic, or before USB comes up, the recovery pull of `SANTONILOG1` is still the only path.
+If USB does not come up, the persistent `SANTONILOG1` ring remains available on SYSTEM. The historical TWRP pull procedure below is one way to retrieve it; it is not part of the normal-boot installer path.
 | `cs_enforcement_disable=1` | Do not kill the unsealed root |
 | `unentitled_ios_sim_launch=1` | Allow the iOS platform binaries to exec |
 | `launchd_unsecure_cache=1` | Skip the AMFI service lookup in the cache loader |

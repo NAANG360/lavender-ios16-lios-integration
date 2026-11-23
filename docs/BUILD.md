@@ -120,7 +120,7 @@ The 1 s timeout shim and the `cs_debug=2`/kprintf-spam shim are diagnostic build
 
 ## 3. Root image (HFSX)
 
-The root image is built from the iPhone X IPSW with `bergamota/tools/mkiosroot-macos.sh` and `tools/sweet-root-tweaks.py`. It is a 16 GiB HFSX image; `img2simg.py` converts it to the Android sparse image flashed to `userdata`.
+The root image is built from the iPhone X IPSW with `bergamota/tools/mkiosroot-macos.sh` and `tools/sweet-root-tweaks.py`. It is a 16 GiB HFSX image; `img2simg.py` converts it to Android sparse-image format. Root-image creation and placement are deliberately separate from the boot-image installer artifact; do not flash this image as part of the boot handoff.
 
 ```bash
 # macOS, from the bergamota tree
@@ -145,7 +145,7 @@ Known-good root images (not distributed):
 | | |
 | --- | --- |
 | Raw image with plist | hash printed by `fix-datamigration.sh` (not distributed) |
-| Sparse image flashed | `cec991082f4e7bf2ae30a5ebcabf75b096d44617f410a93a835b2fc324f971e0` |
+| Prepared sparse-image hash (not distributed) | `cec991082f4e7bf2ae30a5ebcabf75b096d44617f410a93a835b2fc324f971e0` |
 
 ## 4. Custom ROM installer handoff
 
@@ -176,9 +176,10 @@ The decoder prints the header (`version`, ring size, total bytes, flush count) a
 
 ## 6. Verification checklist
 
-- [ ] Kernel is arm64 Mach-O, no LSE instructions.
-- [ ] Shim payload command line contains `rd=emmcroot0`, `emmcrw=1`, `rootrw=1`, `cpus=4`, `sweetlog=1`.
-- [ ] `check_payload.py` accepts the kernel and the lavender DTB.
-- [ ] Root image has `/var/mobile/Library/Preferences/com.apple.DataMigration.plist` with `20H392`.
-- [ ] Backups and stock ROM are verified before touching `userdata`.
-- [ ] The phone is charged; a `userdata` flash can take ~8 minutes.
+- [ ] Kernel is arm64 Mach-O and has no unsupported LSE instructions for the target cores.
+- [ ] The CI manifest and SHA-256 checks pass for `boot.img` or `boot-quiet.img`.
+- [ ] The embedded payload contains `rd=emmcroot0`, `emmcrw=1`, `rootrw=1`, `cpus=4`, and the expected diagnostic arguments.
+- [ ] `check_payload.py` accepts the kernel and Lavender DTB.
+- [ ] A compatible iOS HFSX root is already available at `emmcroot0`; the boot-image handoff does not create or flash it.
+- [ ] The unlocked handset physically accepts the generated boot image through its normal ABL boot path.
+- [ ] The original ROM boot image and a restore route are retained before the custom installer writes the new `boot` image.
