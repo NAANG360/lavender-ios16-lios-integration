@@ -1,6 +1,8 @@
 # Build and flash
 
-This repository does **not** ship Apple binaries, the IPSW, the root image, the stock ROM or the kernel artifact. You must obtain/build them yourself. The commands below are the ones that produced the current lock-screen boot.
+This repository does **not** ship Apple binaries, the IPSW, the root image, the stock ROM or the kernel artifact. You must obtain/build them yourself.
+
+> **LIOS integration deployment:** use the `lavender-rom-installer-payload` CI artifact on this branch. It contains `boot.img` (preferred verbose UI/console image), `boot-quiet.img`, hashes and an installer handoff note. The image belongs in the normal `boot` partition through your existing custom ROM installer. The upstream recovery-partition procedure is not used for this integration path. The boot payload still expects the iOS HFSX root at `emmcroot0`; it does not include or flash that filesystem.
 
 ## Prerequisites
 
@@ -145,19 +147,19 @@ Known-good root images (not distributed):
 | Raw image with plist | hash printed by `fix-datamigration.sh` (not distributed) |
 | Sparse image flashed | `cec991082f4e7bf2ae30a5ebcabf75b096d44617f410a93a835b2fc324f971e0` |
 
-## 4. Flash
+## 4. Custom ROM installer handoff
 
-Back up `persist`, `modemst1/2`, `fsg`, `fsc`, `boot`, `dtbo`, `vbmeta`, `recovery` and the GPT first. `userdata` will be overwritten; Android will not boot until the stock ROM is restored.
+For the LIOS integration branch, download the `lavender-rom-installer-payload` artifact from the same successful XNU workflow run.
 
-```bash
-# 1) iOS root in userdata (sparse, several minutes)
-fastboot -S 512M flash userdata ios16-root.simg
+- Use `boot.img` as the preferred image. It keeps the verbose kernel console visible over the Apple boot mark and includes the persistent log ring and detailed diagnostics.
+- `boot-quiet.img` is the lower-noise alternative.
+- Verify the downloaded files with `sha256sum -c SHA256SUMS`.
+- Have the existing ROM installer write the chosen image to the normal `boot` partition as its final boot-image operation. Do not flash it to `recovery`.
+- Preserve the ROM's original boot image for rollback. The package does not touch `vbmeta`, `dtbo`, modem, persist, or other partitions.
 
-# 2) shim in recovery
-fastboot flash recovery shim-boot-lavender-0192-lite-cpus4-2026-11-19.img
-```
+The generated image has passed host-side format, Lavender DTB, payload-command-line and ABL-size checks. That is not proof of the physical bootloader trust decision: verify acceptance on the unlocked handset before relying on it. No installer-specific updater script is generated because the target ROM installer is external to this repository.
 
-Then **do not** use `fastboot reboot recovery`: on this unit it boots Android and MIUI restores the stock recovery. Power off and boot with **Power + Volume Up**.
+The boot arguments use `rd=emmcroot0`. A compatible iOS HFSX root must already exist at that root device. The boot artifact does not create, resize or flash the root filesystem.
 
 ## 5. Logs
 

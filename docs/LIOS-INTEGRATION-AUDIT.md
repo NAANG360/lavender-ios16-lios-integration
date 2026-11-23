@@ -25,9 +25,13 @@ The reference also records on-device touch operation after its delay-to-timebase
 | Boot guardian / watchdog reset path | Do not port by default | It relies on direct PMIC/SPMI/watchdog MMIO and A53 guardian operation. It is not needed in the reference's Gold-only boot path and requires separate hardware review. |
 | Extra XNU bring-up tracing / patch validators | Selectively reuse | Preserve the reference's more complete boot/IOKit path; add only non-invasive checks where they provide a measurable regression gate. |
 
-## Storage and installation gate
+## ROM-installer and boot-trust integration
 
-The reference's root image lives in `userdata` and its documented boot flow uses a recovery shim because the reference test unit's ABL fastboot-boot path is stubbed. LIOS previously used RAM-only `fastboot boot iosboot.img`. This branch does not adopt the reference's recovery flashing procedure and does not write partitions. Any future persistent root-image strategy for a 32 GB device must first verify the live GPT, partition capacity, backups/restore route, and exact image extents. Image construction and read-only discovery precede any write.
+The reference recovery-shim sequence is not the deployment target for this branch. The integration workflow now builds two Lavender Android boot-image artifacts from the successful XNU kernel: `boot.img` (preferred, visible verbose console over the Apple boot mark) and `boot-quiet.img` (reduced diagnostics). The `lavender-rom-installer-payload` artifact is intended to be consumed by the user's existing custom ROM installer, with `boot.img` written as the final image to the normal `boot` partition. No recovery-partition write or `fastboot boot` dependency is part of this path.
+
+The package job validates the exact Lavender Mach-O kernel, the appended Lavender DTB, the embedded payload command line, the 7,340,032-byte ABL image limit, and SHA-256 manifests. It does not flash the phone, repartition storage, include the iOS root filesystem, rewrite `vbmeta`, or modify `dtbo`. The bootloader must be unlocked. The build checks do not prove that this handset's ABL/verified-boot policy accepts the image; actual boot trust remains a physical-device acceptance gate.
+
+Both boot images use `rd=emmcroot0`. They therefore still require a compatible iOS HFSX root at that device, matching the reference project's current root layout. The root image is not bundled in this artifact. The custom installer must preserve unrelated partitions and retain a restorable copy of the Android ROM's original boot image. Its exact script is not part of this repository, so this branch delivers a deterministic boot-image payload rather than guessing at installer-specific commands.
 
 ## Legal provenance
 

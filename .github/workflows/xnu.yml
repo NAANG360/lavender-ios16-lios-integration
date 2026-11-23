@@ -266,6 +266,176 @@ jobs:
           path: out/
           if-no-files-found: warn
 
+  # Lavender is not allowed to fall through to the legacy Whyred recovery packer.
+  # It gets its own Android boot-image artifacts for the user's custom ROM installer.
+  lavender-installer-payload:
+    name: Lavender ROM-installer boot payload
+    needs: build
+    if: \${{ (inputs.machine_config || 'LAVENDER') == 'LAVENDER' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: xnu-kernel
+          path: xnu/out
+
+      - name: Install Lavender shim toolchain
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq -o Acquire::Retries=3
+          sudo apt-get install -y -qq clang lld llvm python3 cpio
+          clang --version | head -1
+          ld.lld --version | head -1
+          llvm-objcopy --version | head -1
+          llvm-readelf --version | head -1
+          llvm-nm --version | head -1
+
+      - name: Build ROM-installer boot images
+        run: |
+          set -euo pipefail
+          KERNEL=xnu/out/kernel.development.lavender
+          test -s "$KERNEL" || { echo "::error::missing Lavender XNU kernel"; ls -lR xnu/out; exit 1; }
+          test -s resources/lavender_dtb.bin || { echo "::error::missing Lavender ABL DTB"; exit 1; }
+          (cd xnu/out && sha256sum -c SHA256SUMS)
+          python3 tools/check_payload.py --board lavender --kernel "$KERNEL"
+          python3 tools/check_payload.py --board lavender --dtb resources/lavender_dtb.bin
+
+          # Normal ABL boot path: this image is intended for the boot partition
+          # via the user's existing ROM installer. No recovery partition is used.
+          # The iOS HFSX root is still expected at emmcroot0; this artifact does
+          # not contain or flash a root filesystem.
+          COMMON="emmcrw=1 rootrw=1 cs_enforcement_disable=1 unentitled_ios_sim_launch=1 launchd_unsecure_cache=1 wdt=-1 wdt_test=no_user_checkin cpus=4"
+          FB_TEST="\${{ inputs.fb_test_pattern || 'off' }}"
+          FB_ARG=""
+          FB_VERIFY="--reject sweetfbtest=1"
+          if [ "$FB_TEST" = "on" ]; then
+            FB_ARG="sweetfbtest=1"
+            FB_VERIFY="--require sweetfbtest=1"
+          fi
+          COMMON="$COMMON $FB_ARG sweetrtc=$(date +%s)"
+
+          PANEL="\${{ inputs.panel_console || 'text' }}"
+          NOCONSOLE=0
+          if [ "$PANEL" = "hidden" ]; then NOCONSOLE=1; fi
+
+          mkdir -p dist
+          build_image() { # output_name diagnostic_args kprintf_spam mute
+            local output_name="$1" diagnostic_args="$2" spam="$3" mute="$4"
+            rm -rf shim/out
+            BOARD=lavender ROOTDEV=emmcroot0 NO_DUMMY_RAMDISK=1 \
+              EXTRA_CMDLINE="$COMMON $diagnostic_args" \
+              KPRINTF_SPAM="$spam" KPRINTF_MUTE="$mute" \
+              PANEL_NOCONSOLE="$NOCONSOLE" \
+              CC=clang LD=ld.lld OBJCOPY=llvm-objcopy \
+              READELF=llvm-readelf NM=llvm-nm HOST_CC=clang \
+              bash shim/build.sh "$KERNEL"
+
+            local size
+            size=$(stat -c%s shim/out/shim-boot.img)
+            echo "$output_name = $size bytes (Lavender ABL limit 7340032)"
+            test "$size" -le 7340032 || { echo "::error::Lavender boot image exceeds ABL limit"; exit 1; }
+            cp shim/out/shim-boot.img "dist/$output_name"
+
+            python3 tools/payload_cmdline.py --image "dist/$output_name" \
+              --require rd=emmcroot0 --require emmcrw=1 --require rootrw=1 \
+              --require cs_enforcement_disable=1 \
+              --require unentitled_ios_sim_launch=1 \
+              --require launchd_unsecure_cache=1 --require cpus=4 $FB_VERIFY
+            python3 tools/payload_cmdline.py --image "dist/$output_name" --reject 'ignition_level='
+            if [ "$NOCONSOLE" = 1 ]; then
+              python3 tools/payload_cmdline.py --image "dist/$output_name" --require sweetfb_noconsole=1
+            else
+              python3 tools/payload_cmdline.py --image "dist/$output_name" --reject sweetfb_noconsole=1
+            fi
+          }
+
+          # Preferred image: visible verbose boot text over the existing Apple
+          # boot mark, with the persistent log ring and detailed CS diagnostics.
+          build_image boot.img "sweetlog=1 cs_debug=2" "-enable_kprintf_spam" 0
+          # Smaller/less noisy fallback for repeated boots.
+          build_image boot-quiet.img "" "" 1
+
+          python3 - <<'PY'
+          import hashlib, json, os
+          names = ["boot.img", "boot-quiet.img"]
+          images = {}
+          for name in names:
+              path = os.path.join("dist", name)
+              if os.path.isfile(path):
+                  data = open(path, "rb").read()
+                  images[name] = {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+          manifest = {
+              "schema": 1,
+              "device": "Xiaomi Redmi Note 7 / 7S",
+              "codename": "lavender",
+              "board": "Qualcomm SDM660",
+              "image_format": "Android boot image header v0, Qualcomm ABL",
+              "preferred_image": "boot.img",
+              "partition_target": "boot",
+              "recovery_partition_required": False,
+              "root_device": "emmcroot0",
+              "root_filesystem": "Pre-staged iOS HFSX root expected; not included in this artifact",
+              "vbmeta_or_dtbo_modified": False,
+              "bootloader_requirement": "Unlocked Xiaomi ABL",
+              "boot_trust_status": "Build-time format and DTB checks passed; physical ABL acceptance remains to be verified on-device",
+              "images": images
+          }
+          with open("dist/manifest.json", "w") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\\n")
+          PY
+          (cd dist && sha256sum boot*.img > SHA256SUMS)
+
+          cat > dist/INSTALLER-INTEGRATION.md <<'EOF'
+          LIOS Lavender ROM-installer payload
+          ====================================
+
+          Preferred: boot.img
+          - Verbose kernel console remains visible over the Apple boot mark.
+          - Includes the persistent console ring and detailed code-signing diagnostics.
+          - Intended for the normal Xiaomi ABL boot path via the boot partition.
+
+          Alternative: boot-quiet.img
+          - Same XNU/ADT/board image path with reduced diagnostic output.
+
+          Integration
+          -----------
+          Place boot.img in the existing custom ROM installer and make its final
+          boot-image operation write this file to the device's boot partition.
+          Do not route it through recovery, and do not overwrite vbmeta, dtbo,
+          modem, persist, or the user's other partitions as part of this handoff.
+          Keep a copy of the ROM's original boot image so Android can be restored.
+
+          Important
+          ---------
+          Both images pass host-side kernel/DTB/payload checks and the Lavender
+          image-size limit. This does not prove that this handset's ABL/verified-
+          boot policy accepts the image. The bootloader must be unlocked and
+          physical boot acceptance must be verified before treating the image
+          as trusted. This job does not modify or disable vbmeta/AVB.
+
+          The payload uses rd=emmcroot0. A compatible iOS HFSX root must already
+          be present at that root device. The filesystem image is not included
+          and this boot artifact does not repartition or flash userdata.
+          EOF
+
+          echo "### Lavender ROM-installer payload" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "| Image | Size | SHA-256 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | ---: | --- |" >> "$GITHUB_STEP_SUMMARY"
+          for f in dist/boot*.img; do
+            echo "| $(basename "$f") | $(stat -c%s "$f") B | $(sha256sum "$f" | cut -d' ' -f1) |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lavender-rom-installer-payload
+          path: dist/
+          if-no-files-found: error
+
   # Second zip of a completed build: the flashable boot image. The kernel
   # artifact cannot be downloaded without a token, and packing the shim by hand
   # needs a Linux toolchain, so every build publishes the ready-to-flash

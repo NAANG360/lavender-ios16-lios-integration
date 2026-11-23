@@ -1,30 +1,33 @@
-# Boot chain, logs and recovery
+# Boot chain, ROM installer and logs
 
 ## Boot chain
 
 ```
 Xiaomi ABL (unlocked)
-  -> recovery partition: lavender shim (Power + Volume Up)
-  -> shim copies the kernel + ADT + boot args, hands off to XNU
+  -> normal boot partition: LIOS shim boot image supplied by the custom ROM installer
+  -> shim copies the XNU kernel + ADT + boot arguments and hands off to XNU
   -> XNU: GICv3, timers, 4 Gold CPUs, SDCC v5, framebuffer
-  -> HFSX root from userdata (rd=emmcroot0)
+  -> HFSX root from emmcroot0
   -> launchd -> mount-phase-1/2 -> backboardd -> SpringBoard
-  -> iOS 16 lock screen
+  -> iOS 16 UI
 ```
 
-The shim is a minimal bootloader. It is **not** a full UEFI/DarwinBoot implementation; it prepares the CPU, the DT and the payload, then jumps to XNU.
+The shim is a minimal bootloader, not a full UEFI/DarwinBoot implementation. It prepares the CPU, DT and payload, then jumps to XNU.
 
-## Flashing the shim
+## ROM-installer handoff
 
-`fastboot boot <image>` is stubbed by this ABL: it returns `OKAY` but does not execute the image. The working sequence is:
+The integration workflow publishes `lavender-rom-installer-payload` with:
 
-```bash
-fastboot flash recovery shim-boot-lavender-0192-lite-cpus4-2026-11-19.img
-```
+- `boot.img`: preferred verbose image; the kernel console remains visible over the Apple boot mark, with the persistent log ring and detailed diagnostics.
+- `boot-quiet.img`: reduced-diagnostics alternative.
+- `SHA256SUMS` and `manifest.json`: integrity and image metadata.
+- `INSTALLER-INTEGRATION.md`: handoff instructions.
 
-Then power off and hold **Power + Volume Up** until the Apple logo/shim console.
+Your existing custom ROM installer should write the selected image to the normal `boot` partition as its final boot-image operation. This is not a recovery-partition flow and does not depend on `fastboot boot`. Preserve the original Android boot image so the prior ROM can be restored.
 
-Do **not** use `fastboot reboot recovery`. On this unit it boots Android and MIUI restores the stock recovery. If that happens, flash the shim again and use the key combo.
+The images require an unlocked Xiaomi ABL. The CI validates the Android boot-image structure, Lavender DTB, embedded payload and image-size limit, but only a physical boot can prove that this handset's ABL/verified-boot policy trusts the image. The workflow leaves `vbmeta` and `dtbo` untouched.
+
+The payload currently specifies `rd=emmcroot0`; a compatible iOS HFSX root must already be available there. Root filesystem creation and storage layout are separate from this boot-image artifact.
 
 ## Boot arguments
 
