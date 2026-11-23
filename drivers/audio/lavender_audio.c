@@ -45,6 +45,8 @@
  *                   open the apr_audio_svc channel and send the APR core query
  *   lavaud=8        also read the PM660L analog codec over SPMI (SID 3,
  *                   peripheral 0xf0) read-only
+ *   lavaud=9        also test the guarded SPMI write path on the PM660L DIG
+ *                   spare register 0xf070 (write/read-back/restore)
  *   lavaudforce=1   A3: load even if SMEM shows an ADSP from an earlier run
  *   lavaudcopy=0    A3: skip the segment copy (test a preloaded carve-out)
  *   lavaudprobe=1   A3: read the carve-out and print copy progress every 256K
@@ -111,6 +113,8 @@ extern int sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
 /* 0510: lavender arbiter v3 path (SID 3 = PM660L analog codec). */
 extern int sweet_spmi_lavender_read(unsigned sid, unsigned addr,
     uint8_t *out);
+extern int sweet_spmi_lavender_write(unsigned sid, unsigned addr,
+    uint8_t val);
 extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
 
 #define GCC_PA              0x00100000u
@@ -2374,9 +2378,22 @@ audio_glink_apr(void)
 static void
 audio_pm660l(void)
 {
-	static const uint16_t regs[] = {
-		0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006,
-		0x0007, 0x0100, 0x0101,
+	static const struct {
+		uint16_t reg;
+		const char *name;
+	} regs[] = {
+		{ 0x0000, "DIG_REV1" }, { 0x0001, "DIG_REV2" },
+		{ 0x0004, "DIG_TYPE" }, { 0x0005, "DIG_SUBTYPE" },
+		{ 0x0046, "DIG_RST_CTL" }, { 0x0048, "DIG_TOP_CLK" },
+		{ 0x0049, "DIG_ANA_CLK" }, { 0x004A, "DIG_DIG_CLK" },
+		{ 0x0100, "ANA_REV1" }, { 0x0101, "ANA_REV2" },
+		{ 0x0102, "ANA_REV3" }, { 0x0103, "ANA_REV4" },
+		{ 0x0104, "ANA_TYPE" }, { 0x0105, "ANA_SUBTYPE" },
+		{ 0x0140, "MICB_1_EN" }, { 0x0144, "MICB_2_EN" },
+		{ 0x0193, "RX_BIAS_DAC" }, { 0x0197, "HPH_CNP_EN" },
+		{ 0x01B0, "SPKR_DAC_CTL" }, { 0x01B5, "SPKR_PWRSTG" },
+		{ 0x01B6, "SPKR_DRV_MISC" }, { 0x01C0, "CURRENT_LIMIT" },
+		{ 0x01C1, "OUTPUT_VOLTAGE" }, { 0x01C3, "BOOST_EN_CTL" },
 	};
 
 	if (audio_step < 8) {
@@ -2385,12 +2402,43 @@ audio_pm660l(void)
 	audio_announce("read the PM660L analog codec over SPMI (SID 3, 0xf000)");
 	for (uint32_t i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
 		uint8_t v = 0;
-		int err = sweet_spmi_lavender_read(3, 0xf000u + regs[i], &v);
+		int err = sweet_spmi_lavender_read(3, 0xf000u + regs[i].reg,
+		    &v);
 
-		printf("SWEET AUDIO: PM660L[%04x] = %02x (%d)\n", regs[i], v,
-		    err);
+		printf("SWEET AUDIO: PM660L %-14s [%04x] = %02x (%d)\n",
+		    regs[i].name, regs[i].reg, v, err);
 		audio_wait(20);
 	}
+}
+
+/*
+ * F4 write path test: the PM660L DIG spare registers (0xf070..0xf072, POR 0)
+ * are the only writes the guarded SPMI helper allows for now. Write 0x5a,
+ * read it back, then restore the old value and read it again.
+ */
+static void
+audio_pm660l_write(void)
+{
+	uint8_t orig = 0, after = 0, restored = 0;
+	int err;
+
+	if (audio_step < 9) {
+		return;
+	}
+	audio_announce("PM660L spare write/read-back/restore (SID 3 0xf070)");
+	err = sweet_spmi_lavender_read(3, 0xf070u, &orig);
+	printf("SWEET AUDIO: PM660L spare read %02x (%d)\n", orig, err);
+	if (err != 0) {
+		return;
+	}
+	err = sweet_spmi_lavender_write(3, 0xf070u, 0x5au);
+	printf("SWEET AUDIO: PM660L spare write 5a (%d)\n", err);
+	(void)sweet_spmi_lavender_read(3, 0xf070u, &after);
+	err = sweet_spmi_lavender_write(3, 0xf070u, orig);
+	printf("SWEET AUDIO: PM660L spare restore %02x (%d)\n", orig, err);
+	(void)sweet_spmi_lavender_read(3, 0xf070u, &restored);
+	printf("SWEET AUDIO: PM660L spare readback %02x restore %02x\n",
+	    after, restored);
 }
 
 static void
@@ -2733,6 +2781,9 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
 	}
 	if (audio_step >= 8) {
 		audio_pm660l();
+	}
+	if (audio_step >= 9) {
+		audio_pm660l_write();
 	}
 
 	printf("SWEET AUDIO: probe done (lavaud=%u)\n", audio_step);
