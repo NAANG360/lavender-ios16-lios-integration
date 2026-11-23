@@ -393,10 +393,10 @@ jobs:
               bash shim/build.sh "$KERNEL"
 
             local size
-            size=$(stat -c%s shim/out/shim-iosboot.img)
+            size=$(stat -c%s shim/out/shim-boot.img)
             echo "$output_name = $size bytes (Lavender ABL limit 7340032)"
             test "$size" -le 7340032 || { echo "::error::Lavender boot image exceeds ABL limit"; exit 1; }
-            cp shim/out/shim-iosboot.img "dist/$output_name"
+            cp shim/out/shim-boot.img "dist/$output_name"
 
             python3 tools/payload_cmdline.py --image "dist/$output_name" \
               --require rd=emmcroot0 --require emmcrw=1 --require rootrw=1 \
