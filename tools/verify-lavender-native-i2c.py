@@ -58,6 +58,7 @@ if args.xnu_root:
         if not (xr/rel).is_file():
             raise SystemExit(f"staged XNU source missing: {rel}")
     f=(xr/"iokit/conf/files.arm64").read_text()
+    if "\\\\n" in f: raise SystemExit("files.arm64 contains literal escaped newlines")
     e=(xr/"iokit/Kernel/arm/SweetPlatformExpert.cpp").read_text()
     for token in ("LavenderQUPI2C.cpp optional iokitcpp",
                   "LavenderRPMGLINK.cpp optional iokitcpp"):
