@@ -155,11 +155,11 @@ const char *loader_boot(uintptr_t dtb)
 #ifdef BOARD_LAVENDER
 	/* LIOS hardening: XNU's Lavender page-table regime requires 16 KiB
 	 * translation granules. Fail closed before parsing/copying a payload. */
-	uint64_t mmfr0, mpidr;
+	uint64_t mmfr0, platform_mpidr;
 	__asm__ volatile("mrs %0, id_aa64mmfr0_el1" : "=r"(mmfr0));
-	__asm__ volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
+	__asm__ volatile("mrs %0, mpidr_el1" : "=r"(platform_mpidr));
 	uint64_t tgran16 = (mmfr0 >> 20) & 0xf;
-	con_hex("BOOT MPIDR", mpidr & 0xffffff);
+	con_hex("BOOT MPIDR", platform_mpidr & 0xffffff);
 	con_hex("MMFR0", mmfr0);
 	con_hex("TGRAN16", tgran16);
 	if (!lavender_tgran16_supported(mmfr0))
