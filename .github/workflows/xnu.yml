@@ -64,8 +64,11 @@ on:
 
 
 concurrency:
-  group: xnu-${{ github.ref }}
-  cancel-in-progress: true
+  # Root filesystem and kernel jobs can be reused across separate dispatches.
+  # Keep each run independent so a fresh kernel compile does not cancel an
+  # already-running 16 GiB userdata image build on the same branch.
+  group: xnu-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 env:
   DXB_REPO: https://github.com/blacktop/darwin-xnu-build
@@ -499,7 +502,7 @@ jobs:
   lavender-root-filesystem:
     name: Build iOS HFSX userdata image
     needs: host-tests
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_userdata_image == true }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_userdata_image == true && inputs.rootfs_source_run_id == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
