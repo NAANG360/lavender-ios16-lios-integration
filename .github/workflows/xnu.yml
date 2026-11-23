@@ -502,7 +502,7 @@ jobs:
       - name: Build APFS FUSE reader
         run: |
           set -euo pipefail
-          git clone --depth 1 https://github.com/sgan81/apfs-fuse.git "$RUNNER_TEMP/apfs-fuse"
+          git clone --depth 1 --recurse-submodules https://github.com/sgan81/apfs-fuse.git "$RUNNER_TEMP/apfs-fuse"
           cmake -S "$RUNNER_TEMP/apfs-fuse" -B "$RUNNER_TEMP/apfs-fuse/build" -DUSE_FUSE3=ON -DCMAKE_BUILD_TYPE=Release
           cmake --build "$RUNNER_TEMP/apfs-fuse/build" --parallel 2
           sudo cmake --install "$RUNNER_TEMP/apfs-fuse/build" --prefix /usr/local
